@@ -1,0 +1,17 @@
+{
+  "name": "create-prj-bradhezh",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.21.0",
+  "volta": {
+    "node": "22.21.1",
+    "pnpm": "10.21.0"
+  }
+}
