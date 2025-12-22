@@ -1,4 +1,5 @@
 import { defineConfig } from "@rspack/cli";
+import { ExternalItem } from "@rspack/core";
 import nodeExternals from "webpack-node-externals";
 import { TsCheckerRspackPlugin } from "ts-checker-rspack-plugin";
 import { RunScriptWebpackPlugin } from "run-script-webpack-plugin";
@@ -18,7 +19,7 @@ export default defineConfig({
     tsConfig: path.resolve(__dirname, "tsconfig.json"),
   },
 
-  externals: [nodeExternals() as any],
+  externals: [nodeExternals() as ExternalItem],
   externalsType: "commonjs",
 
   module: {
