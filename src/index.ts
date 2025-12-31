@@ -1,8 +1,20 @@
-import { confFromUser } from "@/prompt";
-import { createDir, createPkg } from "@/create";
+import { readdir } from "node:fs/promises";
+import p from "@clack/prompts";
 
-(async () => {
+import { message } from "@/conf";
+import { confFromUser } from "@/prompt";
+import { createDirs, createPkgs, setPkgs } from "@/create";
+
+void (async () => {
+  if ((await readdir(process.cwd())).length) {
+    p.log.error(message.cwdNonEmpty);
+    return;
+  }
   const conf = await confFromUser();
-  createDir(conf);
-  await createPkg(conf);
+  const s = p.spinner();
+  s.start(message.createPrj);
+  await createDirs(conf, s);
+  await createPkgs(conf, s);
+  await setPkgs(conf);
+  s.stop(message.prjCreated);
 })();

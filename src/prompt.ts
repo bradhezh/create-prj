@@ -1,37 +1,35 @@
 import p from "@clack/prompts";
-import { execSync } from "child_process";
 
-import { prompt, option, optional, cmd, meta, NPM, Conf } from "@/conf";
+import { prompt, option, allSelfCreated, meta, NPM } from "@/conf";
+import type {
+  Conf,
+  Type,
+  OptionKey,
+  OptionVal,
+  NonOptionalKey,
+  TypeOptionalKey,
+  NonTypeOptionalKey,
+} from "@/conf";
 
 export const confFromUser = async () => {
-  const env = detectEnv();
-  const conf: Conf = await init(env);
-  await confType(conf);
+  const conf: Conf = await init(detectEnv());
+  await confTypes(conf);
   await confCompulsory(conf);
   await confOptional(conf);
   return conf;
 };
 
 const detectEnv = () => {
-  let npm: NPM;
   if (process.env.npm_config_user_agent?.includes(NPM.pnpm)) {
-    npm = NPM.pnpm;
-  } else if (process.env.npm_config_user_agent?.includes(NPM.npm)) {
-    npm = NPM.npm;
-  } else {
-    throw new Error(prompt.message.pmUnsupported);
+    return NPM.pnpm;
   }
-  let volta: boolean;
-  try {
-    execSync(cmd.voltaV, { stdio: "ignore" });
-    volta = true;
-  } catch {
-    volta = false;
+  if (process.env.npm_config_user_agent?.includes(NPM.npm)) {
+    return NPM.npm;
   }
-  return { volta, npm };
+  throw new Error(prompt.message.pmUnsupported);
 };
 
-const init = async (env: Pick<Conf, "volta" | "npm">) => {
+const init = async (npm: NPM) => {
   const answer = await p.group(
     {
       name: () => p.text(prompt.name),
@@ -41,61 +39,38 @@ const init = async (env: Pick<Conf, "volta" | "npm">) => {
   );
   return {
     ...answer,
-    ...env,
-    compulsory: Object.fromEntries(
-      Object.entries(option.compulsory).map(([k, v]) => [
-        k,
-        Object.values(v)[0],
-      ]),
-    ) as Conf["compulsory"],
+    npm,
+    ...(Object.fromEntries(
+      (Object.entries(option) as [OptionKey, OptionVal][])
+        .filter(([k, _v]) => k !== "type" && k !== "optional")
+        .map(([k, v]) => [k, Object.keys(v)[0]]),
+    ) as { [K in NonOptionalKey]: Conf[K] }),
   };
 };
 
-const confType = async (conf: Conf) => {
+const confTypes = async (conf: Conf) => {
+  await confType(conf, conf.type);
+
+  let types: Type[] | undefined;
   if (conf.type === option.type.monorepo) {
     if (conf.npm !== NPM.pnpm) {
       throw new Error(prompt.message.pnpmForMono);
     }
-    const answer = await p.group(
-      Object.fromEntries(
-        Object.entries(prompt.monorepo).map(([k, v]) => [k, () => p.select(v)]),
-      ),
-      { onCancel },
-    );
-    for (const key in answer) {
-      (conf as any)[key] = answer[key];
-    }
-  } else if (conf.type in option) {
-    (conf as any)[conf.type] = Object.values(
-      option[conf.type as keyof typeof option],
-    )[0];
-    if (conf.type in prompt) {
-      const answer = await p.group(
-        {
-          selection: () =>
-            p.select(
-              prompt[conf.type as keyof typeof option & keyof typeof prompt]!
-                .selection,
-            ),
-        },
-        { onCancel },
-      );
-      (conf as any)[conf.type] = answer.selection;
+    types = conf.monorepo!.types as unknown as Type[];
+    for (const type of types) {
+      await confType(conf, type);
     }
   }
 
-  if (conf.backend === option.backend.nest) {
-    conf.compulsory.typescript = option.compulsory.typescript.metadata;
+  if (conf.backend?.framework === option.optional.backend.framework.nest) {
+    conf.typescript = option.typescript.metadata;
     void (prompt.typescript && (prompt.typescript.disable = true));
   }
   if (
-    (meta.type.selfCreateds as readonly Conf["type"][]).includes(conf.type) ||
-    (conf.type === option.type.monorepo &&
-      !meta.type.inMonos.filter(
-        (e) =>
-          conf[e] &&
-          !(meta.type.selfCreateds as readonly Conf["type"][]).includes(e),
-      ).length)
+    allSelfCreated(
+      conf,
+      conf.type !== option.type.monorepo ? [conf.type] : types!,
+    )
   ) {
     void (prompt.typescript && (prompt.typescript.disable = true));
     void (prompt.builder && (prompt.builder.disable = true));
@@ -107,60 +82,85 @@ const confType = async (conf: Conf) => {
 };
 
 const confCompulsory = async (conf: Conf) => {
-  for (const key in option.compulsory) {
-    const k = key as keyof typeof option.compulsory;
-    if (k in prompt && !prompt[k]!.disable) {
+  for (const key of (Object.keys(option) as OptionKey[]).filter(
+    (e) => e !== "type" && e !== "optional",
+  )) {
+    if (prompt[key] && !prompt[key].disable) {
       const answer = await p.group(
-        { selection: () => p.select(prompt[k]!.selection) },
+        { selection: () => p.select(prompt[key]!.selection) },
         { onCancel },
       );
-      (conf.compulsory as any)[k] = answer.selection;
+      (conf as any)[key] = answer.selection;
     }
   }
 };
 
 const confOptional = async (conf: Conf) => {
-  const optionalAnswer = await p.group(
-    { selection: () => p.select(prompt.optional!.selection) },
+  const answer = await p.group(
+    { selection: () => p.select(prompt.defaults) },
     { onCancel },
   );
-  if (optionalAnswer.selection === optional.option.default) {
-    if (!conf.optional) {
-      conf.optional = {};
-    }
-    for (const key in optional.default) {
-      const k = key as keyof typeof optional.default;
-      if (!conf.optional[k]) {
-        (conf.optional as any)[k] = optional.default[k];
+
+  const keys = Object.keys(option.optional).filter(
+    (e) => !Object.keys(option.type).includes(e),
+  ) as NonTypeOptionalKey[];
+  if (answer.selection === meta.defaults.option.default) {
+    for (const key of keys.filter((e) =>
+      Object.keys(meta.defaults).includes(e),
+    )) {
+      if (!conf[key]) {
+        (conf as any)[key] = meta.defaults[key];
       }
     }
     return;
   }
-  if (optionalAnswer.selection === optional.option.manual) {
-    for (const key in option.optional) {
-      const k = key as keyof typeof option.optional;
-      if (!prompt[k]!.disable) {
+  if (answer.selection === meta.defaults.option.manual) {
+    prompt.deploy.disable = true;
+    prompt.docker.disable = true;
+    for (const key of keys) {
+      if (!prompt[key].disable) {
         const answer = await p.group(
-          { selection: () => p.select(prompt[k]!.selection) },
+          { selection: () => p.select(prompt[key].selection) },
           { onCancel },
         );
         if (!answer.selection) {
-          if (k === meta.key.option.git) {
-            prompt.cicd!.disable = true;
-            prompt.deploy!.disable = true;
-            prompt.docker!.disable = true;
-          }
-          if (k === meta.key.option.cicd) {
-            prompt.deploy!.disable = true;
-            prompt.docker!.disable = true;
+          if (key === meta.key.option.git) {
+            prompt.cicd.disable = true;
           }
           continue;
         }
-        if (!conf.optional) {
-          conf.optional = {};
+        (conf as any)[key] = answer.selection;
+        if (key === meta.key.option.cicd) {
+          conf.deploy = meta.defaults.deploy;
+          conf.docker = meta.defaults.docker;
         }
-        (conf.optional as any)[k] = answer.selection;
       }
+    }
+  }
+};
+
+const confType = async (conf: Conf, type: Type) => {
+  if (!(type in option.optional)) {
+    return;
+  }
+  const type0 = type as TypeOptionalKey;
+  for (const key in option.optional[type0]) {
+    const value = (option.optional[type0] as any)[key];
+    const isArray = Array.isArray(value);
+    (conf[type0] as any) = {
+      ...(conf[type0] ?? {}),
+      [key]: isArray ? [] : Object.keys(value)[0],
+    };
+    if (prompt[type0] && key in prompt[type0]) {
+      const selection = (prompt[type0] as any)[key];
+      const answer = await p.group(
+        {
+          selection: () =>
+            isArray ? p.multiselect(selection) : p.select(selection),
+        },
+        { onCancel },
+      );
+      (conf[type0] as any)[key] = answer.selection;
     }
   }
 };

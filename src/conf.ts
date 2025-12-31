@@ -1,33 +1,28 @@
+import { AllKeys, AllVals } from "@/types";
+
 export const option = {
   type: {
     node: "node",
     backend: "backend",
     frontend: "frontend",
     mobile: "mobile",
-    monorepo: "monorepo",
     lib: "lib",
     cli: "cli",
+    monorepo: "monorepo",
   },
-  backend: {
-    express: "express",
-    nest: "nest",
+  typescript: {
+    nodecorator: "nodecorator",
+    decorator: "decorator",
+    metadata: "metadata",
   },
-  frontend: {
-    react: "react",
-    next: "next",
-  },
-  mobile: { expo: "expo" },
-  lib: { npmjs: "npmjs" },
-  cli: { npmjs: "npmjs" },
-  compulsory: {
-    typescript: {
-      nodecorator: "nodecorator",
-      decorator: "decorator",
-      metadata: "metadata",
-    },
-    builder: { rspack: "rspack" },
-  },
+  builder: { rspack: "rspack" },
   optional: {
+    backend: { framework: { express: "express", nest: "nest" } },
+    frontend: { framework: { vite: "vite", next: "next" } },
+    mobile: { framework: { expo: "expo" } },
+    lib: { registry: { npmjs: "npmjs" } },
+    cli: { registry: { npmjs: "npmjs" } },
+    monorepo: { types: ["backend", "frontend", "mobile"] },
     lint: { eslint: "eslint" },
     test: { jest: "jest" },
     git: { github: "github" },
@@ -39,58 +34,98 @@ export const option = {
 } as const;
 
 const type = {
-  inMonos: [option.type.backend, option.type.frontend, option.type.mobile],
-  selfCreateds: [option.type.frontend, option.type.mobile],
-  shared: "shared",
+  selfCreateds: [
+    {
+      name: option.type.frontend,
+      framework: [
+        option.optional.frontend.framework.vite,
+        option.optional.frontend.framework.next,
+      ],
+    },
+    option.type.mobile,
+  ],
   withMultiplePkgTmplts: [option.type.backend],
+  shared: "shared",
 } as const;
 
-type ConfFromOpt<T> = T extends object
-  ? T[keyof T] extends object
-    ? { [K in keyof T]: ConfFromOpt<T[K]> }
-    : T[keyof T]
-  : T;
-type RecursiveWritable<T> = T extends object
-  ? { -readonly [K in keyof T]: RecursiveWritable<T[K]> }
-  : T;
-type RecursivePartial<T> = T extends object
-  ? { [K in keyof T]?: RecursivePartial<T[K]> }
-  : T;
-type Conf0 = RecursiveWritable<ConfFromOpt<typeof option>>;
+const defaults = {
+  lint: option.optional.lint.eslint,
+  test: option.optional.test.jest,
+  git: option.optional.git.github,
+  cicd: option.optional.cicd.ghactions,
+  deploy: option.optional.deploy.render,
+  docker: option.optional.docker.docker,
+  orm: option.optional.orm.prisma,
+  option: { default: "default", manual: "manual" },
+} as const;
+
+export type Option = typeof option;
+export type OptionKey = keyof Option;
+export type OptionVal = Option[OptionKey];
+export type NonOptionalKey = Exclude<OptionKey, "optional">;
+export type Optional = Option["optional"];
+export type OptionalKey = keyof Optional;
+export type OptionalVal = Optional[OptionalKey];
+export type TypeOptionalKey = OptionalKey & keyof Option["type"];
+export type TypeOptionalVal = Optional[TypeOptionalKey];
+export type TypeOptionalValKey = AllKeys<TypeOptionalVal>;
+export type TypeOptionalValVal = AllVals<TypeOptionalVal>;
+export type NonTypeOptionalKey = Exclude<OptionalKey, TypeOptionalKey>;
+export type SelfCreated = (typeof type.selfCreateds)[number];
+export type SelfCreatedObj = SelfCreated & object;
+export type SelfCreatedObjKey = keyof SelfCreatedObj;
+export type SelfCreatedObjVal = SelfCreatedObj[SelfCreatedObjKey];
+export type SelfCreatedName =
+  | Exclude<SelfCreated, SelfCreatedObj>
+  | SelfCreatedObj["name"];
+type ConfFromOption<T> = T extends number | string | boolean | unknown[]
+  ? T
+  : T[keyof T] extends number | string | boolean | unknown[]
+    ? T[keyof T]
+    : {
+        [K in Exclude<keyof T, "optional">]: ConfFromOption<T[K]>;
+      } & (T extends { optional: unknown }
+        ? {
+            [K in keyof ConfFromOption<T["optional"]>]?: ConfFromOption<
+              T["optional"]
+            >[K];
+          }
+        : unknown);
 export enum NPM {
   npm = "npm",
   pnpm = "pnpm",
 }
-export type Conf = {
-  name: string;
-  volta: boolean;
-  npm: NPM;
-} & Pick<Conf0, "type" | "compulsory"> &
-  RecursivePartial<Omit<Conf0, "type" | "compulsory">>;
+export type Conf = { name: string; npm: NPM } & ConfFromOption<Option>;
+export type Type = Conf["type"];
+export type NonSelfCreatedType = Exclude<
+  Exclude<Type, "monorepo">,
+  SelfCreatedName
+>;
+export type WithMultiplePkgTmplt = (typeof type.withMultiplePkgTmplts)[number];
+export type ConfWithMultiplePkgTmplt = Conf[WithMultiplePkgTmplt];
+export type ConfWithMultiplePkgTmpltKey = AllKeys<ConfWithMultiplePkgTmplt>;
+export type ConfWithMultiplePkgTmpltVal = AllVals<ConfWithMultiplePkgTmplt>;
+export type WithSinglePkgTemplt = Exclude<
+  NonSelfCreatedType,
+  WithMultiplePkgTmplt
+>;
 
-export const optional = {
-  option: {
-    default: "default",
-    manual: "manual",
-  },
-  default: {
-    lint: option.optional.lint.eslint,
-    test: option.optional.test.jest,
-    git: option.optional.git.github,
-    cicd: option.optional.cicd.ghactions,
-    deploy: option.optional.deploy.render,
-    docker: option.optional.docker.docker,
-    orm: option.optional.orm.prisma,
-  },
-} as const;
-
-const flatOpt = (({ compulsory, optional: optConf, ...rest }) => ({
-  ...rest,
-  ...compulsory,
-  optional: optional.option,
-  ...optConf,
-}))(option);
-type FlatOpt = typeof flatOpt;
+export const allSelfCreated = (conf: Conf, types: Type[]) => {
+  return !types.filter(
+    (e) =>
+      !type.selfCreateds.filter((e0) =>
+        typeof e0 === "string"
+          ? e0 === e
+          : e0.name === e &&
+            (
+              Object.entries(e0) as [SelfCreatedObjKey, SelfCreatedObjVal][]
+            ).filter(
+              ([k, v]) =>
+                k !== "name" && conf[e] && v.includes((conf[e] as any)[k]),
+            ).length,
+      ).length,
+  ).length;
+};
 
 export const message = {
   name: {
@@ -104,31 +139,9 @@ export const message = {
     backend: "Backend",
     frontend: "Frontend",
     mobile: "Mobile",
-    monorepo: "Monorepo with backend, frontend, or mobile",
     lib: "Library",
     cli: "CLI tool",
-  },
-  backend: {
-    q: "Backend?",
-    express: "Express",
-    nest: "NestJS",
-  },
-  frontend: {
-    q: "Frontend?",
-    react: "React (Vite)",
-    next: "Next.js",
-  },
-  mobile: {
-    q: "Mobile?",
-    expo: "Expo",
-  },
-  lib: {
-    q: "Package registry for library?",
-    npmjs: "npmjs",
-  },
-  cli: {
-    q: "Package registry for CLI tool?",
-    npmjs: "npmjs",
+    monorepo: "Monorepo",
   },
   typescript: {
     q: "TypeScript decorator?",
@@ -136,60 +149,65 @@ export const message = {
     decorator: "Decorator",
     metadata: "Decorator with emitDecoratorMetadata",
   },
-  builder: {
-    q: "Builder?",
-    rspack: "Rspack",
+  builder: { q: "Builder?", rspack: "Rspack" },
+  backend: {
+    framework: { q: "Backend framework?", express: "Express", nest: "NestJS" },
   },
-  optional: {
-    q: "Accept optional ones with defaults, or configure them one by one, or choose none of them?",
+  frontend: {
+    framework: {
+      q: "Frontend framework?",
+      vite: "Vite",
+      next: "Next.js",
+    },
+  },
+  mobile: { framework: { q: "Mobile framework?", expo: "Expo" } },
+  lib: { registry: { q: "Library package registry?", npmjs: "npmjs" } },
+  cli: { registry: { q: "CLI tool package registry?", npmjs: "npmjs" } },
+  monorepo: {
+    types: {
+      q: "Types in monorepo?",
+      backend: "Backend",
+      frontend: "Frontend",
+      mobile: "Mobile",
+    },
+  },
+  defaults: {
+    q: "Accept defaults, or configure them one by one, or choose none of them?",
     default:
       "Accept defaults (ESLint, Jest, GitHub, GitHub Actions, Render.com, Docker, and Prisma if applicable)",
     manual: "Configure manually",
   },
-  lint: {
-    q: "Lint?",
-    eslint: "ESLint",
-  },
-  test: {
-    q: "Test framework?",
-    jest: "Jest",
-  },
-  git: {
-    q: "Git?",
-    github: "GitHub",
-  },
-  cicd: {
-    q: "CI/CD?",
-    ghactions: "GitHub Actions",
-  },
-  deploy: {
-    q: "Cloud for deployment?",
-    render: "Render.com",
-  },
-  docker: {
-    q: "Docker for deployment?",
-    docker: "docker.io",
-  },
-  orm: {
-    q: "ORM?",
-    prisma: "Prisma",
-  },
+  lint: { q: "Lint?", eslint: "ESLint" },
+  test: { q: "Test framework?", jest: "Jest" },
+  git: { q: "Git?", github: "GitHub" },
+  cicd: { q: "CI/CD?", ghactions: "GitHub Actions" },
+  deploy: { q: "Cloud for deployment?", render: "Render.com" },
+  docker: { q: "Docker for deployment?", docker: "docker.io" },
+  orm: { q: "ORM?", prisma: "Prisma" },
+  cwdNonEmpty: "The current work directory must be empty.",
   opCanceled: "Operation cancelled.",
   pmUnsupported: "The tool can only support npm or pnpm for now.",
   pnpmForMono: "The tool can only support pnpm monorepo for now.",
+  createPrj: "Creating projects",
+  createVite: "create-vite ...",
+  createNext: "create-next-app ...",
+  createExpo: "create-expo-app ...",
+  noTmplt: "No template for %s.",
   nextWkspaceRenamed:
     "frontend/pnpm-workspace.yaml has been renamed frontend/pnpm-workspace.yaml.bak, please check the content and merge it into the root one.",
   expoWkspaceRenamed:
     'mobile/pnpm-workspace.yaml has been renamed mobile/pnpm-workspace.yaml.bak and "nodeLinker: hoisted" has been merged into the root one, please check whether there are other configurations to be merged into the root one.',
-  createVite: "create-vite ...",
-  createNext: "create-next-app ...",
-  createExpo: "create-expo-app ...",
+  proceed: "Proceeding",
+  prjCreated: "Creation completed!",
+  noteWidth: 70,
 } as const;
 
-const none = {
-  value: undefined,
-  label: "None",
-} as const;
+export type Spinner = {
+  start: (msg?: string) => void;
+  stop: (msg?: string, code?: number) => void;
+};
+
+const none = { value: undefined, label: "None" } as const;
 
 export const prompt = {
   name: {
@@ -198,72 +216,127 @@ export const prompt = {
     validate: (value?: string) => (value ? undefined : message.name.validate),
   },
   ...(Object.fromEntries(
-    (Object.entries(flatOpt) as [keyof FlatOpt, FlatOpt[keyof FlatOpt]][])
-      .filter(
-        ([k, v]) =>
-          typeof v === "object" &&
-          (Object.keys(v).length > 1 ||
-            k in option.optional ||
-            k === "optional"),
-      )
-      .map(([k, v]) => [
-        k,
-        {
-          disable: false,
-          selection: {
-            message: message[k].q,
-            ...(k !== "optional"
-              ? {}
-              : { initialValue: optional.option.default }),
-            options: [
-              ...Object.values(v).map((e) => ({
-                value: e,
-                label: (message[k] as any)[e],
-              })),
-              ...(!(k in option.optional || k === "optional") ? [] : [none]),
-            ],
-          },
+    (
+      (Object.entries(option) as [OptionKey, OptionVal][]).filter(
+        ([k, v]) => k !== "optional" && Object.keys(v).length > 1,
+      ) as [NonOptionalKey, OptionVal][]
+    ).map(([k, v]) => [
+      k,
+      {
+        disable: false,
+        selection: {
+          message: message[k].q,
+          options: Object.keys(v).map((e) => ({
+            value: e,
+            label: (message[k] as any)[e],
+          })),
         },
-      ]),
+      },
+    ]),
   ) as {
-    [K in keyof FlatOpt]?: {
+    [K in NonOptionalKey]?: {
       disable: boolean;
       selection: {
         message: string;
+        options: { value: keyof Option[K]; label: string }[];
+      };
+    };
+  }),
+  ...(Object.fromEntries(
+    (Object.keys(option.optional) as OptionalKey[])
+      .filter(
+        (e) =>
+          e in option.type &&
+          (Object.values(option.optional[e]) as TypeOptionalValVal[]).filter(
+            (e0) =>
+              Array.isArray(e0) ? e0.length : Object.keys(e0).length > 1,
+          ).length,
+      )
+      .map((e) => [
+        e,
+        Object.fromEntries(
+          (
+            Object.entries(option.optional[e]) as [
+              TypeOptionalValKey,
+              TypeOptionalValVal,
+            ][]
+          )
+            .filter(([_k, v]) =>
+              Array.isArray(v) ? v.length : Object.keys(v).length > 1,
+            )
+            .map(([k, v]) => {
+              const msgu = message[e] as any;
+              return [
+                k,
+                {
+                  message: msgu[k].q,
+                  options: Array.isArray(v)
+                    ? v.map((e0) => ({
+                        value: e0,
+                        label: msgu[k][e0],
+                      }))
+                    : Object.keys(v).map((e0) => ({
+                        value: e0,
+                        label: msgu[k][e0],
+                      })),
+                },
+              ];
+            }),
+        ),
+      ]),
+  ) as {
+    [K in TypeOptionalKey]?: {
+      [K0 in keyof Optional[K]]?: {
+        message: string;
         options: {
-          value: FlatOpt[K][keyof FlatOpt[K]];
+          value: Optional[K][K0] extends unknown[]
+            ? Optional[K][K0][number]
+            : keyof Optional[K][K0];
           label: string;
         }[];
       };
     };
   }),
-  monorepo: Object.fromEntries(
-    type.inMonos
-      .filter((k) => k in flatOpt && typeof flatOpt[k] === "object")
-      .map((k) => [
-        k,
-        {
+  ...(Object.fromEntries(
+    (
+      Object.entries(option.optional).filter(
+        ([k, _v]) => !(k in option.type),
+      ) as [NonTypeOptionalKey, OptionalVal][]
+    ).map(([k, v]) => [
+      k,
+      {
+        disable: false,
+        selection: {
           message: message[k].q,
           options: [
-            ...Object.values(flatOpt[k]).map((e) => ({
+            ...Object.keys(v).map((e) => ({
               value: e,
               label: (message[k] as any)[e],
             })),
             none,
           ],
         },
-      ]),
+      },
+    ]),
   ) as {
-    [K in (typeof type.inMonos)[number] & keyof FlatOpt]?: {
-      message: string;
-      options: {
-        value: FlatOpt[K][keyof FlatOpt[K]];
-        lable: string;
-      }[];
+    [K in NonTypeOptionalKey]: {
+      disable: boolean;
+      selection: {
+        message: string;
+        options: { value: keyof Optional[K]; label: string }[];
+      };
     };
+  }),
+  defaults: {
+    message: message.defaults.q,
+    options: [
+      { value: defaults.option.default, label: message.defaults.default },
+      { value: defaults.option.manual, label: message.defaults.manual },
+      none,
+    ],
   },
   message,
-} as const;
+};
 
 export const template = {
   url: "https://raw.githubusercontent.com/bradhezh/prj-template/master",
@@ -273,14 +346,18 @@ export const template = {
     express: "package/package-express.json",
     nest: "package/package-nest.json",
     monorepo: "package/package-mono.json",
+    monoFeMobile: "package/package-mono-fe-mobile.json",
+    monoBeNext: "package/package-mono-be-next.json",
+    monoBeNextMobile: "package/package-mono-be-next-mobile.json",
+    monoBeFe: "package/package-mono-be-fe.json",
+    monoBeFeMobile: "package/package-mono-be-fe-mobile.json",
+    monoBeMobile: "package/package-mono-be-mobile.json",
     shared: "package/package-shared.json",
     lib: "package/package-lib.json",
     cli: "package/package-cli.json",
   },
   pnpmWkspace: "pnpm-workspace.yaml",
-  onlyBuiltDeps: {
-    nest: ["@nestjs/core"],
-  },
+  onlyBuiltDeps: { nest: ["@nestjs/core"] },
   bak: ".bak",
   src: "src",
   git: ".git",
@@ -296,19 +373,28 @@ export const cmd = {
   createNext:
     "%s create next-app %s --ts --no-react-compiler --no-src-dir -app --api --eslint --tailwind --skip-install --disable-git",
   createExpo: "%s create expo-app %s --no-install",
-  pkgSetName: '%s pkg set name="%s"',
-  pkgSetVoltaNode: '%s pkg set "volta.node"="%s"',
-  pkgSetVoltaNpm: '%s pkg set "volta.%s"="%s"',
-  pkgSetPkgMgr: '%s pkg set packageManager="%s@%s"',
-  pkgSetBin: '%s pkg set "bin.%s"="dist/index.js"',
+  setPkgName: '%s pkg set name="%s"',
+  setPkgVoltaNode: '%s pkg set "volta.node"="%s"',
+  setPkgVoltaNpm: '%s pkg set "volta.%s"="%s"',
+  setPkgPkgMgr: '%s pkg set packageManager="%s@%s"',
+  setPkgBin: '%s pkg set "bin.%s"="dist/index.js"',
+  setPkgScripts: '%s pkg set "scripts.%s"="%s"',
+  script: {
+    vite: { name: "start", script: "vite preview" },
+    eas: {
+      name: "build",
+      script: "eas build --platform android --profile development",
+    },
+  },
+  setPkgDevDeps: '%s pkg set "devDependencies.%s"="%s"',
+  dep: {
+    vercel: { name: "vercel", version: "^48" },
+    eas: { name: "eas-cli", version: "^16" },
+  },
 } as const;
 
 export const meta = {
-  key: {
-    option: {
-      git: "git",
-      cicd: "cicd",
-    },
-  },
+  key: { option: { git: "git", cicd: "cicd" } },
   type,
+  defaults,
 } as const;
