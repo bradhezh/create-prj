@@ -1,18 +1,15 @@
 import { readdir } from "node:fs/promises";
-import p from "@clack/prompts";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-import { message } from "@/conf";
-import { confFromUser } from "@/prompt";
-import { create } from "@/create";
+import { main } from "@/main";
+
+const dynamicImport = new Function("specifier", "return import(specifier)");
 
 void (async () => {
-  if ((await readdir(process.cwd())).length) {
-    p.log.error(message.cwdNonEmpty);
-    return;
+  const dir = path.join(__dirname, "plugins");
+  for (const file of (await readdir(dir)).filter((e) => e.endsWith(".js"))) {
+    await dynamicImport(pathToFileURL(path.join(dir, file)).href);
   }
-  const conf = await confFromUser();
-  const s = p.spinner();
-  s.start(message.createPrj);
-  await create(conf, s);
-  s.stop(message.prjCreated);
+  await main();
 })();

@@ -4,12 +4,14 @@ import { prompt, option, allSelfCreated, meta, NPM } from "@/conf";
 import type {
   Conf,
   Type,
-  OptionKey,
-  OptionVal,
-  NonOptionalKey,
+  Option,
   TypeOptionalKey,
   NonTypeOptionalKey,
 } from "@/conf";
+
+type OptionKey = keyof Option;
+type OptionVal = Option[OptionKey];
+type NonOptionalKey = Exclude<OptionKey, "optional">;
 
 export const confFromUser = async () => {
   const conf: Conf = await init(detectEnv());
