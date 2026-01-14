@@ -5,16 +5,14 @@ import path from "node:path";
 import axios from "axios";
 import p from "@clack/prompts";
 
-import { meta, useOption, regValue, Conf, PlugType, Spinner } from "@/registry";
+import { option, value } from "./const";
+import { regValue, meta, Conf, ConfType, Spinner } from "@/registry";
 import { message as msg } from "@/message";
 
 const exec = promisify(execAsync);
 
-useOption(meta.plugin.option.git, "Git", meta.system.option.category.optional);
-
 const message = {
   ...msg,
-  visibility: { label: "Git repository visibility" },
   noGit: 'No "git" installed to create the repository.',
   noGh: 'No "gh" installed to create the repository on GitHub.',
   scopeRequired:
@@ -42,47 +40,22 @@ const run = async (conf: Conf, s: Spinner) => {
     p.log.warn(message.noGh);
     return;
   }
-  s.stop();
-  const { visibility } = await visPrompt();
-  s.start(message.proceed);
-  const user = await checkAuth(visibility, s);
-  const scope = await checkScope(visibility, s);
-  await createGh(conf, user, visibility);
+
+  const name = conf[conf.type as ConfType]?.name ?? conf.type;
+  const vis = conf[option.gitVis] as string;
+
+  const user = await checkAuth(vis, s);
+  const scope = await checkScope(vis, s);
+  await createGh(user, name, vis);
   if (scope) {
-    await setPubRule(conf, user);
+    await setPubRule(user, name);
   }
 };
 
 regValue(
-  { name: "github", label: "GitHub", plugin: { run } },
+  { name: value.git.github, label: "GitHub", plugin: { run }, disables: [] },
   meta.plugin.option.git,
 );
-
-const visibility = {
-  public: { value: "public", label: "Public" },
-  private: { value: "private", label: "Private" },
-} as const;
-type VisibilityObj = typeof visibility;
-type Visibility = VisibilityObj[keyof VisibilityObj]["value"];
-
-const visPrompt = () => {
-  return p.group(
-    {
-      visibility: () =>
-        p.select({
-          message: message.visibility.label,
-          options: [
-            { value: visibility.public.value, label: visibility.public.label },
-            {
-              value: visibility.private.value,
-              label: visibility.private.label,
-            },
-          ],
-        }),
-    },
-    { onCancel },
-  );
-};
 
 const command = {
   git: "git --version",
@@ -123,12 +96,12 @@ const checkGh = async () => {
   }
 };
 
-const checkAuth = async (vis: Visibility, s: Spinner) => {
+const checkAuth = async (vis: string, s: Spinner) => {
   try {
     return (await exec(command.user)).stdout.trim();
   } catch {
     const cmd =
-      vis !== visibility.public.value ? command.login : command.loginPubRule;
+      vis !== value.gitVis.public ? command.login : command.loginPubRule;
     p.log.info(cmd);
     s.stop();
     execSync(cmd, { stdio: "inherit" });
@@ -137,8 +110,8 @@ const checkAuth = async (vis: Visibility, s: Spinner) => {
   }
 };
 
-const checkScope = async (vis: Visibility, s: Spinner) => {
-  if (vis !== visibility.public.value || (await hasPubScope())) {
+const checkScope = async (vis: string, s: Spinner) => {
+  if (vis !== value.gitVis.public || (await hasPubScope())) {
     return true;
   }
   p.log.warn(message.scopeRequired);
@@ -162,9 +135,8 @@ const createGit = async () => {
   await exec(command.ciInit);
 };
 
-const createGh = async (conf: Conf, user: string, visibility: Visibility) => {
-  const name = conf[conf.type as PlugType]?.name ?? conf.type;
-  const create = format(command.createGh, name, visibility);
+const createGh = async (user: string, name: string, vis: string) => {
+  const create = format(command.createGh, name, vis);
   p.log.info(create);
   await exec(create);
   p.log.info(command.rename);
@@ -179,8 +151,7 @@ const createGh = async (conf: Conf, user: string, visibility: Visibility) => {
 const githubDir = ".github" as const;
 const codeowners = "CODEOWNERS" as const;
 
-const setPubRule = async (conf: Conf, user: string) => {
-  const name = conf[conf.type as PlugType]?.name ?? conf.type;
+const setPubRule = async (user: string, name: string) => {
   const rule = {
     required_pull_request_reviews: {
       required_approving_review_count: 1,
@@ -220,9 +191,4 @@ const hasPubScope = async () => {
       .map((e) => e.replace(/['"]/g, "").trim())
       .includes(pubScope)
   );
-};
-
-const onCancel = () => {
-  p.cancel(message.opCanceled);
-  process.exit(0);
 };

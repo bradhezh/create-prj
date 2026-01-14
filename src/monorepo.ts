@@ -3,7 +3,7 @@ import axios from "axios";
 import Yaml from "yaml";
 import { format } from "node:util";
 
-import { meta, Conf, PlugType } from "@/registry";
+import { meta, NPM, Conf, PluginType } from "@/registry";
 import { setPkgName, setPkgVers, setPkgScript } from "@/command";
 
 const template = {
@@ -11,20 +11,27 @@ const template = {
   name: "package.json",
 } as const;
 
-const workspace = "pnpm-workspace.yaml" as const;
-
 const run = async (conf: Conf) => {
-  for (const type of conf.monorepo!.types) {
-    await mkdir(conf[type as PlugType]?.name ?? type);
+  const npm = conf.npm;
+  const types = conf.monorepo!.types as PluginType[];
+  const defType = types[0];
+  const defTypeConf = conf[defType];
+  const monoName = conf.monorepo!.name;
+  const beName = conf.backend?.name ?? meta.plugin.type.backend;
+  const feName = conf.frontend?.name ?? meta.plugin.type.frontend;
+  const mName = conf.mobile?.name ?? meta.plugin.type.mobile;
+
+  for (const type of types) {
+    await mkdir(conf[type]?.name ?? type);
   }
   await writeFile(
     template.name,
     (await axios.get(template.url, { responseType: "text" })).data,
   );
-  await setPkgName(conf, conf.monorepo!.name);
-  await setPkgVers(conf);
-  await setPkgScripts(conf);
-  await createWkspace(conf);
+  await setPkgName(npm, monoName);
+  await setPkgVers(npm);
+  await setPkgScripts(npm, types, defType, defTypeConf, beName, feName, mName);
+  await createWkspace(types, conf);
 };
 
 export const monorepo = {
@@ -32,6 +39,7 @@ export const monorepo = {
   label: "Monorepo",
   plugin: { run },
   options: [],
+  disables: [],
 };
 
 const script = {
@@ -51,63 +59,64 @@ const script = {
   mobile: { suffix: ":m" },
 } as const;
 
-const setPkgScripts = async (conf: Conf) => {
-  const beName = conf.backend?.name ?? meta.plugin.type.backend;
-  const feName = conf.frontend?.name ?? meta.plugin.type.frontend;
-  const mName = conf.mobile?.name ?? meta.plugin.type.mobile;
+const setPkgScripts = async (
+  npm: NPM,
+  types: PluginType[],
+  defType: PluginType,
+  defTypeConf: Conf[PluginType],
+  beName: string,
+  feName: string,
+  mName: string,
+) => {
   let defName, defIsMobile;
-  if (conf.monorepo!.types.length === 1) {
-    defName =
-      conf[conf.monorepo!.types[0] as PlugType]?.name ??
-      conf.monorepo!.types[0];
-    if (conf.monorepo!.types[0] === meta.plugin.type.mobile) {
+  if (types.length === 1) {
+    defName = defTypeConf?.name ?? defType;
+    if (defType === meta.plugin.type.mobile) {
       defIsMobile = true;
     }
-  } else if (conf.monorepo!.types.includes(meta.plugin.type.backend)) {
+  } else if (types.includes(meta.plugin.type.backend)) {
     defName = beName;
-  } else if (conf.monorepo!.types.includes(meta.plugin.type.frontend)) {
+  } else if (types.includes(meta.plugin.type.frontend)) {
     defName = feName;
   }
-  await setBuild(conf, beName, feName, mName, defName);
-  await setDev(conf, feName, mName, defName);
-  await setStart(conf, defName, defIsMobile);
+  await setBuild(npm, types, beName, feName, mName, defName);
+  await setDev(npm, types, feName, mName, defName);
+  await setStart(npm, defName, defIsMobile);
 };
 
 const setBuild = async (
-  conf: Conf,
+  npm: NPM,
+  types: PluginType[],
   beName: string,
   feName: string,
   mName: string,
   defName?: string,
 ) => {
   if (
-    conf.monorepo!.types.includes(meta.plugin.type.backend) &&
-    conf.monorepo!.types.includes(meta.plugin.type.frontend)
+    types.includes(meta.plugin.type.backend) &&
+    types.includes(meta.plugin.type.frontend)
   ) {
     await setPkgScript(
-      conf,
+      npm,
       script.copyDist.name,
       format(script.copyDist.script, beName, feName, beName),
     );
     await setPkgScript(
-      conf,
+      npm,
       script.build.name,
       format(script.build.fullstack, beName, feName),
     );
   } else if (defName) {
     await setPkgScript(
-      conf,
+      npm,
       script.build.name,
       format(script.build.script, defName),
     );
   }
 
-  if (
-    conf.monorepo!.types.includes(meta.plugin.type.mobile) &&
-    defName !== mName
-  ) {
+  if (types.includes(meta.plugin.type.mobile) && defName !== mName) {
     await setPkgScript(
-      conf,
+      npm,
       `${script.build.name}${script.mobile.suffix}`,
       format(script.build.script, mName),
     );
@@ -115,7 +124,8 @@ const setBuild = async (
 };
 
 const setDev = async (
-  conf: Conf,
+  npm: NPM,
+  types: PluginType[],
   feName: string,
   mName: string,
   defName?: string,
@@ -123,51 +133,43 @@ const setDev = async (
   void (
     defName &&
     (await setPkgScript(
-      conf,
+      npm,
       script.dev.name,
       format(script.dev.script, defName),
     ))
   );
-  if (
-    conf.monorepo!.types.includes(meta.plugin.type.frontend) &&
-    defName !== feName
-  ) {
+  if (types.includes(meta.plugin.type.frontend) && defName !== feName) {
     await setPkgScript(
-      conf,
+      npm,
       `${script.dev.name}${script.frontend.suffix}`,
       format(script.dev.script, feName),
     );
   }
-  if (
-    conf.monorepo!.types.includes(meta.plugin.type.mobile) &&
-    defName !== mName
-  ) {
+  if (types.includes(meta.plugin.type.mobile) && defName !== mName) {
     await setPkgScript(
-      conf,
+      npm,
       `${script.dev.name}${script.mobile.suffix}`,
       format(script.dev.script, mName),
     );
   }
 };
 
-const setStart = async (
-  conf: Conf,
-  defName?: string,
-  defIsMobile?: boolean,
-) => {
+const setStart = async (npm: NPM, defName?: string, defIsMobile?: boolean) => {
   if (defName && !defIsMobile) {
     await setPkgScript(
-      conf,
+      npm,
       script.start.name,
       format(script.start.script, defName),
     );
   }
 };
 
-const createWkspace = async (conf: Conf) => {
+const workspace = "pnpm-workspace.yaml" as const;
+
+const createWkspace = async (types: PluginType[], conf: Conf) => {
   const packages: string[] = [];
-  for (const type of conf.monorepo!.types) {
-    packages.push(conf[type as PlugType]?.name ?? type);
+  for (const type of types) {
+    packages.push(conf[type]?.name ?? type);
   }
   await writeFile(workspace, Yaml.stringify({ packages }));
 };

@@ -4,7 +4,8 @@ import path from "node:path";
 import p from "@clack/prompts";
 import { format } from "node:util";
 
-import { meta, useType, useOption, regValue, Conf, Spinner } from "@/registry";
+import { value } from "./const";
+import { useType, useOption, regValue, meta, Conf, Spinner } from "@/registry";
 import {
   setPkgName,
   setPkgVers,
@@ -43,25 +44,41 @@ const script = {
 const git = ".git" as const;
 
 const run = async (conf: Conf, s: Spinner) => {
-  const cwd =
-    conf.type !== meta.system.type.monorepo ? "." : conf.mobile!.name!;
-  const cmd = format(command.createExpo, conf.npm, cwd);
+  const npm = conf.npm;
+  const name = conf.mobile!.name!;
+  const type = conf.type;
+  const cwd = type !== meta.system.type.monorepo ? "." : name;
+
+  const cmd = format(command.createExpo, npm, cwd);
   p.log.info(cmd);
   s.stop();
   execSync(cmd, { stdio: "inherit" });
   s.start(message.proceed);
   await rm(path.join(cwd, git), { recursive: true, force: true });
-  await setPkgName(conf, conf.mobile!.name!, cwd);
-  await setPkgVers(conf, cwd);
-  await setPkgScript(conf, script.build.name, script.build.script, cwd);
-  await setPkgScript(conf, script.dev.name, script.dev.script, cwd);
-  if (conf.type === meta.system.type.monorepo) {
-    await setMonoPathAlias(conf.mobile!.name!);
+  await setPkgName(npm, name, cwd);
+  await setPkgVers(npm, cwd);
+  await setPkgScript(npm, script.build.name, script.build.script, cwd);
+  await setPkgScript(npm, script.dev.name, script.dev.script, cwd);
+  if (type === meta.system.type.monorepo) {
+    await setMonoPathAlias(name);
   }
 };
 
 regValue(
-  { name: "expo", label: "Expo", plugin: { run } },
+  {
+    name: value.mobile.framework.expo,
+    label: "Expo",
+    plugin: { run },
+    disables: [
+      { option: meta.plugin.option.builder },
+      /*
+      { option: meta.plugin.option.typescript },
+      { option: meta.plugin.option.test },
+      { option: meta.plugin.option.lint },
+      { option: meta.plugin.option.orm },
+      */
+    ],
+  },
   meta.plugin.option.type.mobile.framework,
   meta.plugin.type.mobile,
 );

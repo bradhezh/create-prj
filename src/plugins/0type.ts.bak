@@ -5,7 +5,7 @@ import path from "node:path";
 import axios from "axios";
 import Yaml from "yaml";
 
-import { meta, regType, Conf, PlugType } from "@/registry";
+import { regType, meta, Conf, PluginType } from "@/registry";
 import {
   setPkgName,
   setPkgVers,

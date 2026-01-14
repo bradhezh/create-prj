@@ -15,7 +15,7 @@ export default defineConfig({
   entry: {
     ...Object.fromEntries(
       readdirSync(path.join(__dirname, "src", "plugins"))
-        .filter((e) => e.endsWith(".ts"))
+        .filter((e) => e.endsWith(".ts") && e !== "const.ts")
         .map((e) => [
           path.join("plugins", path.basename(e, ".ts")),
           path.join(__dirname, "src", "plugins", e),

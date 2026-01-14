@@ -4,15 +4,15 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import Json from "comment-json";
 
-import { Conf, NPM } from "@/registry";
+import { NPM } from "@/registry";
 
 const exec = promisify(execAsync);
 
 export const command = {
-  voltaV: "volta -v",
-  nodeV: "node -v",
-  npmV: `%s -v`,
-  pnpmV: "pnpm -v",
+  volta: "volta -v",
+  node: "node -v",
+  npm: `%s -v`,
+  pnpm: "pnpm -v",
   setPkgName: '%s pkg set name="%s"',
   setPkgVoltaNode: '%s pkg set "volta.node"="%s"',
   setPkgVoltaNpm: '%s pkg set "volta.%s"="%s"',
@@ -23,45 +23,45 @@ export const command = {
   setPkgBin: '%s pkg set "bin.%s"="%s"',
 } as const;
 
-export const setPkgName = async (conf: Conf, name: string, cwd?: string) => {
-  await exec(format(command.setPkgName, conf.npm, name), { cwd });
+export const setPkgName = async (npm: NPM, name: string, cwd?: string) => {
+  await exec(format(command.setPkgName, npm, name), { cwd });
 };
 
 let volta: boolean | undefined;
 
-export const setPkgVers = async (conf: Conf, cwd?: string) => {
+export const setPkgVers = async (npm: NPM, cwd?: string) => {
   if (volta === undefined) {
     try {
-      await exec(command.voltaV);
+      await exec(command.volta);
       volta = true;
     } catch {
       volta = false;
     }
   }
   if (volta) {
-    const node = (await exec(command.nodeV)).stdout.trim();
+    const node = (await exec(command.node)).stdout.trim();
     await exec(
       format(
         command.setPkgVoltaNode,
-        conf.npm,
+        npm,
         !node.startsWith("v") ? node : node.slice(1),
       ),
       { cwd },
     );
-    const npm = (await exec(format(command.npmV, conf.npm))).stdout.trim();
+    const npmV = (await exec(format(command.npm, npm))).stdout.trim();
     await exec(
       format(
         command.setPkgVoltaNpm,
-        conf.npm,
-        conf.npm,
-        !npm.startsWith("v") ? npm : npm.slice(1),
+        npm,
+        npm,
+        !npmV.startsWith("v") ? npmV : npmV.slice(1),
       ),
       { cwd },
     );
   }
 
-  if (conf.npm === NPM.pnpm) {
-    const pnpm = (await exec(command.pnpmV)).stdout.trim();
+  if (npm === NPM.pnpm) {
+    const pnpm = (await exec(command.pnpm)).stdout.trim();
     await exec(
       format(
         command.setPkgPkgMgr,
@@ -75,34 +75,34 @@ export const setPkgVers = async (conf: Conf, cwd?: string) => {
 };
 
 export const setPkgScript = async (
-  conf: Conf,
+  npm: NPM,
   name: string,
   script: string,
   cwd?: string,
 ) => {
-  await exec(format(command.setPkgScripts, conf.npm, name, script), { cwd });
+  await exec(format(command.setPkgScripts, npm, name, script), { cwd });
 };
 
 export const setPkgDep = async (
-  conf: Conf,
+  npm: NPM,
   name: string,
   version: string,
   cwd?: string,
 ) => {
-  await exec(format(command.setPkgDeps, conf.npm, name, version), { cwd });
+  await exec(format(command.setPkgDeps, npm, name, version), { cwd });
 };
 
 export const setPkgDevDep = async (
-  conf: Conf,
+  npm: NPM,
   name: string,
   version: string,
   cwd?: string,
 ) => {
-  await exec(format(command.setPkgDevDeps, conf.npm, name, version), { cwd });
+  await exec(format(command.setPkgDevDeps, npm, name, version), { cwd });
 };
 
 export const setPkgBin = async (
-  conf: Conf,
+  npm: NPM,
   name: string,
   cwd?: string,
   script?: string,
@@ -110,7 +110,7 @@ export const setPkgBin = async (
   await exec(
     format(
       command.setPkgBin,
-      conf.npm,
+      npm,
       !name.includes("/") ? name : name.split("/").pop(),
       script ?? "dist/index.js",
     ),

@@ -13,9 +13,6 @@ export const meta = {
     option: {
       type: {
         common: { name: "name" },
-        node: {},
-        cli: {},
-        lib: {},
         backend: { framework: "framework" },
         frontend: { framework: "framework" },
         mobile: { framework: "framework" },
@@ -55,7 +52,9 @@ const sysConfKey = {
 type TypeOptionObj = typeof meta.plugin.option.type;
 type NonTypeOption = Exclude<keyof typeof meta.plugin.option, "type">;
 type CommonTypeOption = keyof TypeOptionObj["common"];
-export type PlugType = Exclude<keyof TypeOptionObj, "common">;
+type TypeWithOption = Exclude<keyof TypeOptionObj, "common">;
+export type PluginType = keyof typeof meta.plugin.type;
+export type ConfType = PluginType | "monorepo";
 export enum NPM {
   npm = "npm",
   pnpm = "pnpm",
@@ -65,10 +64,14 @@ export type Conf = {
   type: string;
   monorepo?: { name: string; types: string[] };
 } & {
-  [K in PlugType]?: { [K0 in CommonTypeOption]?: string } & {
-    -readonly [K0 in keyof TypeOptionObj[K]]?: string;
-  } & Record<string, string | string[]>;
-} & { [K in NonTypeOption]?: string } & Record<string, string | string[]>;
+  [K in PluginType]?: { [K0 in CommonTypeOption]?: string } & {
+    -readonly [K0 in keyof TypeOptionObj[K extends TypeWithOption
+      ? K
+      : never]]?: string;
+  } & Partial<Record<string, string | string[]>>;
+} & {
+  [K in NonTypeOption]?: string;
+} & Partial<Record<string, string | string[]>>;
 
 export type Category = keyof typeof meta.system.option.category;
 
@@ -80,12 +83,24 @@ export type Spinner = {
 export interface IPlugin {
   run: (conf: Conf, s: Spinner) => Promise<void>;
 }
-export type Value = { name: string; label: string; plugin?: IPlugin };
-export type Option = Value & {
+export type Value = {
+  name: string;
+  label: string;
+  plugin?: IPlugin;
+  disables: {
+    type?: string;
+    option: string;
+  }[];
+};
+export type Option = {
+  name: string;
+  label: string;
+  plugin?: IPlugin;
   values: Value[];
   multiple?: boolean;
   optional?: boolean;
   initial?: string;
+  disabled?: boolean;
 };
 export type Type = Value & { options: Option[] };
 export const options: {
@@ -109,7 +124,7 @@ export const useType = (name: string, label: string) => {
     throw new Error(message.sysType);
   }
   if (!options.type.find((e) => e.name === name)) {
-    options.type.push({ name, label, options: [] });
+    options.type.push({ name, label, options: [], disables: [] });
   }
 };
 
@@ -141,24 +156,16 @@ export const useOption = (
 };
 
 export const regValue = (value: Value, option: string, type?: string) => {
-  let opts;
-  if (!type) {
-    opts = [...options.compulsory, ...options.optional];
-  } else {
-    const type0 = options.type.find((e) => e.name === type);
-    if (!type0) {
-      throw new Error(message.typeNotExist);
-    }
-    opts = type0.options;
-  }
-  const opt = opts.find((e) => e.name === option);
-  if (!opt) {
-    throw new Error(message.optionNotExist);
-  }
+  const opt = getOption(option, type);
   if (opt.values.find((e) => e.name === value.name)) {
     throw new Error(message.valueExist);
   }
   opt.values.push(value);
+};
+
+export const disableOption = (name: string, type?: string) => {
+  const option = getOption(name, type);
+  option.disabled = true;
 };
 
 const getOptions = (category: Category, type?: string, option?: string) => {
@@ -187,4 +194,22 @@ const getOptions = (category: Category, type?: string, option?: string) => {
     throw new Error(message.optionConflict);
   }
   return options[category];
+};
+
+const getOption = (name: string, type?: string) => {
+  let opts;
+  if (!type) {
+    opts = [...options.compulsory, ...options.optional];
+  } else {
+    const type0 = options.type.find((e) => e.name === type);
+    if (!type0) {
+      throw new Error(message.typeNotExist);
+    }
+    opts = type0.options;
+  }
+  const option = opts.find((e) => e.name === name);
+  if (!option) {
+    throw new Error(message.optionNotExist);
+  }
+  return option;
 };
