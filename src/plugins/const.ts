@@ -3,14 +3,20 @@ export const option = {
 } as const;
 
 export const value = {
-  backend: { framework: { express: "express", nest: "nest" } },
-  frontend: { framework: { react: "react", next: "next" } },
-  mobile: { framework: { expo: "expo" } },
+  framework: {
+    express: "express",
+    nest: "nest",
+    react: "react",
+    next: "next",
+    expo: "expo",
+  },
   typescript: { nodec: "nodec", metadata: "metadata" },
   builder: { rspack: "rspack" },
-  test: { jest: "jest", none: "none" },
-  lint: { eslint: "eslint", none: "none" },
-  orm: { prisma: "prisma", none: "none" },
-  git: { github: "github", none: "none" },
+  test: { jest: "jest" },
+  lint: { eslint: "eslint" },
+  orm: { prisma: "prisma" },
+  git: { github: "github" },
   gitVis: { public: "public", private: "private" },
+  cicd: { ghaction: "ghaction" },
+  deploy: { render: "render" },
 } as const;

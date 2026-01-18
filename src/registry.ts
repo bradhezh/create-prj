@@ -12,12 +12,11 @@ export const meta = {
     },
     option: {
       type: {
-        common: { name: "name" },
+        common: { name: "name", typescript: "typescript" },
         backend: { framework: "framework" },
         frontend: { framework: "framework" },
         mobile: { framework: "framework" },
       },
-      typescript: "typescript",
       builder: "builder",
       test: "test",
       lint: "lint",
@@ -25,8 +24,8 @@ export const meta = {
       git: "git",
       cicd: "cicd",
       deploy: "deploy",
-      docker: "docker",
     },
+    value: { none: "none" },
   },
   system: {
     type: {
@@ -43,11 +42,7 @@ export const meta = {
   },
 } as const;
 
-const sysConfKey = {
-  npm: "npm",
-  type: "type",
-  monorepo: "monorepo",
-} as const;
+const sysConfKey = { npm: "npm", type: "type", monorepo: "monorepo" } as const;
 
 type TypeOptionObj = typeof meta.plugin.option.type;
 type NonTypeOption = Exclude<keyof typeof meta.plugin.option, "type">;
@@ -113,35 +108,55 @@ export const options: {
   optional: Option[];
 } = { type: [], compulsory: [], optional: [] };
 
-export const regType = (type: Type) => {
+export const regType = (type: Type, index?: number) => {
   if (Object.keys(meta.system.type).includes(type.name)) {
     throw new Error(message.sysType);
   }
   if (options.type.find((e) => e.name === type.name)) {
     throw new Error(message.typeExist);
   }
-  options.type.push(type);
+  if (index === undefined) {
+    options.type.push(type);
+    return;
+  }
+  options.type.splice(index, 0, type);
 };
 
-export const useType = (name: string, label: string) => {
+export const useType = (name: string, label: string, index?: number) => {
   if (Object.keys(meta.system.type).includes(name)) {
     throw new Error(message.sysType);
   }
-  if (!options.type.find((e) => e.name === name)) {
-    options.type.push({ name, label, options: [], disables: [], enables: [] });
+  if (options.type.find((e) => e.name === name)) {
+    return;
   }
+  if (index === undefined) {
+    options.type.push({ name, label, options: [], disables: [], enables: [] });
+    return;
+  }
+  options.type.splice(index, 0, {
+    name,
+    label,
+    options: [],
+    disables: [],
+    enables: [],
+  });
 };
 
 export const regOption = (
   option: Option,
   category: Category,
   type?: string,
+  index?: number,
 ) => {
   const opts = getOptions(category, type, option.name);
   if (opts.find((e) => e.name === option.name)) {
     throw new Error(message.optionExist);
   }
-  opts.push(option);
+  if (index === undefined) {
+    opts.push(option);
+    return;
+  }
+  opts.splice(index, 0, option);
 };
 
 export const useOption = (
@@ -149,14 +164,27 @@ export const useOption = (
   label: string,
   category: Category,
   type?: string,
+  index?: number,
   multiple?: boolean,
   optional?: boolean,
   initial?: string,
 ) => {
   const opts = getOptions(category, type, name);
-  if (!opts.find((e) => e.name === name)) {
-    opts.push({ name, label, values: [], multiple, optional, initial });
+  if (opts.find((e) => e.name === name)) {
+    return;
   }
+  if (index === undefined) {
+    opts.push({ name, label, values: [], multiple, optional, initial });
+    return;
+  }
+  opts.splice(index, 0, {
+    name,
+    label,
+    values: [],
+    multiple,
+    optional,
+    initial,
+  });
 };
 
 export const regValue = (

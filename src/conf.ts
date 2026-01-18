@@ -155,20 +155,23 @@ const confOptional = async (conf: Conf) => {
   if (optl === optional.none.value) {
     return;
   }
-  if (optl === optional.default.value) {
-    for (const opt of defOpts) {
-      void (opt.plugin && plugins.option.optional.push(opt.plugin));
-      const value = opt.values[0];
-      void (value.plugin && plugins.value.push(value.plugin));
-      conf[opt.name] = !opt.multiple ? value.name : [value.name];
-    }
+  if (optl === optional.manual.value) {
+    await confOptions(
+      conf,
+      options.optional,
+      meta.system.option.category.optional,
+    );
     return;
   }
-  await confOptions(
-    conf,
-    options.optional,
-    meta.system.option.category.optional,
-  );
+  if (optl !== optional.default.value) {
+    return;
+  }
+  for (const opt of defOpts) {
+    void (opt.plugin && plugins.option.optional.push(opt.plugin));
+    const value = opt.values[0];
+    void (value.plugin && plugins.value.push(value.plugin));
+    conf[opt.name] = !opt.multiple ? value.name : [value.name];
+  }
 };
 
 const typePrompt = () => {

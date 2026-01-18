@@ -1,14 +1,21 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import axios from "axios";
-import Yaml from "yaml";
 import { format } from "node:util";
 
 import { meta, NPM, Conf, PluginType } from "@/registry";
-import { setPkgName, setPkgVers, setPkgScript } from "@/command";
+import {
+  installTmplt,
+  setPkgName,
+  setPkgVers,
+  setPkgScript,
+  createWkspace,
+} from "@/command";
+
+const base =
+  "https://raw.githubusercontent.com/bradhezh/prj-template/master/type/monorepo" as const;
 
 const template = {
-  url: "https://raw.githubusercontent.com/bradhezh/prj-template/master/type/monorepo/package.json",
-  name: "package.json",
+  monorepo: { name: "package.json", path: "/package.json" },
+  shared: { name: "shared.tar", path: "/shared/shared.tar" },
+  sharedJs: { name: "shared.tar", path: "/shared/js/shared.tar" },
 } as const;
 
 const run = async (conf: Conf) => {
@@ -20,18 +27,17 @@ const run = async (conf: Conf) => {
   const beName = conf.backend?.name ?? meta.plugin.type.backend;
   const feName = conf.frontend?.name ?? meta.plugin.type.frontend;
   const mName = conf.mobile?.name ?? meta.plugin.type.mobile;
-
-  for (const type of types) {
-    await mkdir(conf[type]?.name ?? type);
-  }
-  await writeFile(
-    template.name,
-    (await axios.get(template.url, { responseType: "text" })).data,
+  const packages = types.map((e) => conf[e]?.name ?? e);
+  const jsTypes = types.filter(
+    (e) => conf[e]?.typescript === meta.plugin.value.none,
   );
+
+  await installTmplt(base, template, meta.system.type.monorepo);
   await setPkgName(npm, monoName);
   await setPkgVers(npm);
   await setPkgScripts(npm, types, defType, defTypeConf, beName, feName, mName);
-  await createWkspace(types, conf);
+  await createWkspace(packages);
+  await createShared(npm, types, jsTypes);
 };
 
 export const monorepo = {
@@ -70,15 +76,15 @@ const setPkgScripts = async (
   mName: string,
 ) => {
   let defName, defIsMobile;
-  if (types.length === 1) {
+  if (types.includes(meta.plugin.type.backend)) {
+    defName = beName;
+  } else if (types.includes(meta.plugin.type.frontend)) {
+    defName = feName;
+  } else if (types.length === 1) {
     defName = defTypeConf?.name ?? defType;
     if (defType === meta.plugin.type.mobile) {
       defIsMobile = true;
     }
-  } else if (types.includes(meta.plugin.type.backend)) {
-    defName = beName;
-  } else if (types.includes(meta.plugin.type.frontend)) {
-    defName = feName;
   }
   await setBuild(npm, types, beName, feName, mName, defName);
   await setDev(npm, types, feName, mName, defName);
@@ -115,13 +121,14 @@ const setBuild = async (
     );
   }
 
-  if (types.includes(meta.plugin.type.mobile) && defName !== mName) {
-    await setPkgScript(
-      npm,
-      `${script.build.name}${script.mobile.suffix}`,
-      format(script.build.script, mName),
-    );
+  if (!types.includes(meta.plugin.type.mobile) || mName === defName) {
+    return;
   }
+  await setPkgScript(
+    npm,
+    `${script.build.name}${script.mobile.suffix}`,
+    format(script.build.script, mName),
+  );
 };
 
 const setDev = async (
@@ -139,14 +146,14 @@ const setDev = async (
       format(script.dev.script, defName),
     ))
   );
-  if (types.includes(meta.plugin.type.frontend) && defName !== feName) {
+  if (types.includes(meta.plugin.type.frontend) && feName !== defName) {
     await setPkgScript(
       npm,
       `${script.dev.name}${script.frontend.suffix}`,
       format(script.dev.script, feName),
     );
   }
-  if (types.includes(meta.plugin.type.mobile) && defName !== mName) {
+  if (types.includes(meta.plugin.type.mobile) && mName !== defName) {
     await setPkgScript(
       npm,
       `${script.dev.name}${script.mobile.suffix}`,
@@ -156,21 +163,34 @@ const setDev = async (
 };
 
 const setStart = async (npm: NPM, defName?: string, defIsMobile?: boolean) => {
-  if (defName && !defIsMobile) {
-    await setPkgScript(
-      npm,
-      script.start.name,
-      format(script.start.script, defName),
-    );
+  if (!defName || defIsMobile) {
+    return;
   }
+  await setPkgScript(
+    npm,
+    script.start.name,
+    format(script.start.script, defName),
+  );
 };
 
-const workspace = "pnpm-workspace.yaml" as const;
+const tmpltKey = { sharedJs: "sharedJs" } as const;
 
-const createWkspace = async (types: PluginType[], conf: Conf) => {
-  const packages: string[] = [];
-  for (const type of types) {
-    packages.push(conf[type]?.name ?? type);
+const createShared = async (
+  npm: NPM,
+  types: PluginType[],
+  jsTypes: PluginType[],
+) => {
+  if (types.length <= 1) {
+    return;
   }
-  await writeFile(workspace, Yaml.stringify({ packages }));
+  await installTmplt(
+    base,
+    template,
+    types.filter((e) => !jsTypes.includes(e)).length > 1
+      ? meta.system.type.shared
+      : tmpltKey.sharedJs,
+    meta.system.type.shared,
+    true,
+  );
+  await setPkgVers(npm, meta.system.type.shared);
 };

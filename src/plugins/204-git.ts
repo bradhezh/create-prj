@@ -7,15 +7,12 @@ regOption(
     label: "Git",
     values: [
       {
-        name: value.git.none,
+        name: meta.plugin.value.none,
         label: "None",
         disables: [
           { option: option.gitVis },
-          /*
           { option: meta.plugin.option.cicd },
           { option: meta.plugin.option.deploy },
-          { option: meta.plugin.option.docker },
-          */
         ],
         enables: [],
       },

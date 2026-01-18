@@ -2,54 +2,26 @@ import { execSync, exec as execAsync } from "node:child_process";
 import { promisify, format } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import axios from "axios";
 import p from "@clack/prompts";
 
 import { option, value } from "./const";
 import { regValue, meta, Conf, ConfType, Spinner } from "@/registry";
+import { installTmplt } from "@/command";
 import { message as msg } from "@/message";
 
 const exec = promisify(execAsync);
 
-const message = {
-  ...msg,
-  noGit: 'No "git" installed to create the repository.',
-  noGh: 'No "gh" installed to create the repository on GitHub.',
-  scopeRequired:
-    '"admin:repo_hook" required in scopes to set branch protection rules for the public repository.',
-  noPubScope:
-    'no "admin:repo_hook" selected, no branch protection rules will be set.',
-} as const;
-
-const template = {
-  url: "https://raw.githubusercontent.com/bradhezh/prj-template/master/git/gitignore",
-  name: ".gitignore",
-} as const;
-
 const run = async (conf: Conf, s: Spinner) => {
-  if (!(await checkGit())) {
-    p.log.warn(message.noGit);
+  if (!(await init())) {
     return;
   }
-  await writeFile(
-    template.name,
-    (await axios.get(template.url, { responseType: "text" })).data,
-  );
-  await createGit();
-  if (!(await checkGh())) {
-    p.log.warn(message.noGh);
-    return;
-  }
-
   const name = conf[conf.type as ConfType]?.name ?? conf.type;
   const vis = conf[option.gitVis] as string;
 
   const user = await checkAuth(vis, s);
-  const scope = await checkScope(vis, s);
+  const scopes = await checkScopes(vis, s);
   await createGh(user, name, vis);
-  if (scope) {
-    await setPubRule(user, name);
-  }
+  await setGh(user, name, vis, scopes);
 };
 
 regValue(
@@ -86,16 +58,45 @@ const command = {
     "gh api --method PUT /repos/%s/%s/branches/master/protection --input -",
 } as const;
 
-const checkGit = async () => {
-  return exec(command.git)
-    .then(() => true)
-    .catch(() => false);
-};
+const message = {
+  ...msg,
+  noGit: 'No "git" installed to create the repository.',
+  noGh: 'No "gh" installed to create the repository on GitHub.',
+  scopeRequired:
+    '"admin:repo_hook" required in scopes to set branch protection rules for the public repository.',
+  noPubScope:
+    'no "admin:repo_hook" selected, no branch protection rules will be set.',
+} as const;
 
-const checkGh = async () => {
-  return exec(command.gh)
-    .then(() => true)
-    .catch(() => false);
+const base =
+  "https://raw.githubusercontent.com/bradhezh/prj-template/master/git/gitignore" as const;
+const template = { git: { name: ".gitignore" } } as const;
+
+const init = async () => {
+  if (
+    !(await exec(command.git)
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    p.log.warn(message.noGit);
+    return false;
+  }
+  await installTmplt(base, template, meta.plugin.option.git);
+  p.log.info(command.init);
+  await exec(command.init);
+  p.log.info(command.add);
+  await exec(command.add);
+  p.log.info(command.ciInit);
+  await exec(command.ciInit);
+  if (
+    await exec(command.gh)
+      .then(() => true)
+      .catch(() => false)
+  ) {
+    return true;
+  }
+  p.log.warn(message.noGh);
+  return false;
 };
 
 const checkAuth = async (vis: string, s: Spinner) => {
@@ -112,29 +113,23 @@ const checkAuth = async (vis: string, s: Spinner) => {
   }
 };
 
-const checkScope = async (vis: string, s: Spinner) => {
-  if (vis !== value.gitVis.public || (await hasPubScope())) {
-    return true;
+const pubScope = "admin:repo_hook" as const;
+
+const checkScopes = async (vis: string, s: Spinner) => {
+  let scopes = await getScopes();
+  if (vis !== value.gitVis.public || scopes.includes(pubScope)) {
+    return scopes;
   }
   p.log.warn(message.scopeRequired);
   p.log.info(command.refresh);
   s.stop();
   execSync(command.refresh, { stdio: "inherit" });
   s.start(message.proceed);
-  const scope = await hasPubScope();
-  if (!scope) {
+  scopes = await getScopes();
+  if (!scopes.includes(pubScope)) {
     p.log.warn(message.noPubScope);
   }
-  return scope;
-};
-
-const createGit = async () => {
-  p.log.info(command.init);
-  await exec(command.init);
-  p.log.info(command.add);
-  await exec(command.add);
-  p.log.info(command.ciInit);
-  await exec(command.ciInit);
+  return scopes;
 };
 
 const createGh = async (user: string, name: string, vis: string) => {
@@ -153,7 +148,15 @@ const createGh = async (user: string, name: string, vis: string) => {
 const githubDir = ".github" as const;
 const codeowners = "CODEOWNERS" as const;
 
-const setPubRule = async (user: string, name: string) => {
+const setGh = async (
+  user: string,
+  name: string,
+  vis: string,
+  scopes: string[],
+) => {
+  if (vis !== value.gitVis.public || !scopes.includes(pubScope)) {
+    return;
+  }
   const rule = {
     required_pull_request_reviews: {
       required_approving_review_count: 1,
@@ -180,17 +183,10 @@ const setPubRule = async (user: string, name: string) => {
 };
 
 const scopesPattern = /Token scopes: (.*)/i;
-const pubScope = "admin:repo_hook" as const;
 
-const hasPubScope = async () => {
-  const status = (await exec(command.auth)).stdout;
-  const matches = status.match(scopesPattern);
-  return (
-    matches &&
-    matches[1] &&
-    matches[1]
-      .split(",")
-      .map((e) => e.replace(/['"]/g, "").trim())
-      .includes(pubScope)
-  );
+const getScopes = async () => {
+  return (await exec(command.auth)).stdout
+    .match(scopesPattern)![1]
+    .split(",")
+    .map((e) => e.replace(/['"]/g, "").trim());
 };
