@@ -1,6 +1,7 @@
-import p from "@clack/prompts";
-import path from "node:path";
+import { group, text, select, multiselect, cancel, log } from "@clack/prompts";
+import { basename } from "node:path";
 import { format } from "node:util";
+import wrapAnsi from "wrap-ansi";
 
 import {
   disableOptions,
@@ -175,10 +176,10 @@ const confOptional = async (conf: Conf) => {
 };
 
 const typePrompt = () => {
-  return p.group(
+  return group(
     {
       type: () =>
-        p.select({
+        select({
           message: message.type.label,
           options: [
             ...options.type.map((e) => ({ value: e, label: e.label })),
@@ -191,16 +192,16 @@ const typePrompt = () => {
 };
 
 const monoPrompt = () => {
-  return p.group(
+  return group(
     {
       name: () =>
-        p.text({
+        text({
           message: message.monorepo.name.label,
-          initialValue: path.basename(process.cwd()),
+          initialValue: basename(process.cwd()),
           validate: (value?: string) => (value ? undefined : message.validate),
         }),
       types: () =>
-        p.multiselect({
+        multiselect({
           message: message.monorepo.types.label,
           options: options.type.map((e) => ({ value: e, label: e.label })),
         }),
@@ -225,7 +226,7 @@ const optionPromptArg = (
         ? ""
         : conf.type === monorepo.name
           ? type!
-          : path.basename(process.cwd()),
+          : basename(process.cwd()),
   };
 };
 
@@ -233,11 +234,11 @@ const optionPrompt = (
   option: Option,
   { label, iniName }: OptionPromptParam,
 ) => {
-  return p.group(
+  return group(
     {
       [option.name]: () =>
         !option.values.length
-          ? p.text({
+          ? text({
               message: `${label}${option.label}`,
               initialValue:
                 option.initial ??
@@ -249,14 +250,14 @@ const optionPrompt = (
                 : (value?: string) => (value ? undefined : message.validate),
             })
           : !option.multiple
-            ? p.select({
+            ? select({
                 message: `${label}${option.label}`,
                 options: option.values.map((e) => ({
                   value: e,
                   label: e.label,
                 })),
               })
-            : p.multiselect({
+            : multiselect({
                 message: `${label}${option.label}`,
                 options: option.values.map((e) => ({
                   value: e,
@@ -269,10 +270,10 @@ const optionPrompt = (
 };
 
 const optionalPrompt = (defOpts: Option[]) => {
-  return p.group(
+  return group(
     {
       optional: () =>
-        p.select({
+        select({
           message: !defOpts.length
             ? message.optional.options.label
             : message.optional.defaults.label,
@@ -296,23 +297,29 @@ const optionalPrompt = (defOpts: Option[]) => {
 
 const hintDefOpts = (opts: Option[], defOpts: Option[]) => {
   if (!defOpts.length) {
-    p.log.info(
-      format(
-        message.optional.options.hint,
-        opts.map((e) => e.label).join(", "),
+    log.info(
+      wrapAnsi(
+        format(
+          message.optional.options.hint,
+          opts.map((e) => e.label).join(", "),
+        ),
+        message.noteWidth,
       ),
     );
     return;
   }
-  p.log.info(
-    format(
-      message.optional.defaults.hint,
-      defOpts.map((e) => `${e.label}:${e.values[0].label}`).join(", "),
+  log.info(
+    wrapAnsi(
+      format(
+        message.optional.defaults.hint,
+        defOpts.map((e) => `${e.label}: ${e.values[0].label}`).join(", "),
+      ),
+      message.noteWidth,
     ),
   );
 };
 
 const onCancel = () => {
-  p.cancel(message.opCanceled);
+  cancel(message.opCanceled);
   process.exit(0);
 };

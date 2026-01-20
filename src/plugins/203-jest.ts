@@ -1,20 +1,25 @@
+import { log, spinner } from "@clack/prompts";
+import { format } from "node:util";
+
 import { value } from "./const";
 import { regValue, meta, Conf } from "@/registry";
+import { message } from "@/message";
 
-const run = async (conf: Conf) => {
-  console.log("jest plugin running...");
-  console.log(conf);
+const label = "Jest" as const;
+
+const run = async (_conf: Conf) => {
+  const s = spinner();
+  s.start();
+  log.info(format(message.pluginStart, label));
+
   await Promise.resolve();
+
+  log.info(format(message.pluginFinish, label));
+  s.stop();
 };
 
 regValue(
-  {
-    name: value.test.jest,
-    label: "Jest",
-    plugin: { run },
-    disables: [],
-    enables: [],
-  },
+  { name: value.test.jest, label, plugin: { run }, disables: [], enables: [] },
   meta.plugin.option.test,
   undefined,
   0,

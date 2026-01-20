@@ -1,8 +1,8 @@
 import { exec as execAsync } from "node:child_process";
 import { promisify, format } from "node:util";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
-import path from "node:path";
-import axios from "axios";
+import { join } from "node:path";
+import { get } from "axios";
 import Json from "comment-json";
 import Yaml from "yaml";
 
@@ -19,7 +19,9 @@ const command = {
   setPkgVoltaNode: '%s pkg set "volta.node"="%s"',
   setPkgVoltaNpm: '%s pkg set "volta.%s"="%s"',
   setPkgPkgMgr: '%s pkg set packageManager="%s@%s"',
-  setPkgScripts: '%s pkg set "scripts.%s"="%s"',
+  setPkgScript: '%s pkg set "scripts.%s"="%s"',
+  getPkgScript: '%s pkg get "scripts.%s"',
+  rmPkgScript: '%s pkg delete "scripts.%s"',
   setPkgDeps: '%s pkg set "dependencies.%s"="%s"',
   setPkgDevDeps: '%s pkg set "devDependencies.%s"="%s"',
   setPkgBin: '%s pkg set "bin.%s"="%s"',
@@ -79,10 +81,21 @@ export const setPkgVers = async (npm: NPM, cwd?: string) => {
 export const setPkgScript = async (
   npm: NPM,
   name: string,
-  script: string,
+  script?: string,
   cwd?: string,
 ) => {
-  await exec(format(command.setPkgScripts, npm, name, script), { cwd });
+  if (!script) {
+    await exec(format(command.rmPkgScript, npm, name), { cwd });
+    return;
+  }
+  await exec(format(command.setPkgScript, npm, name, script), { cwd });
+};
+
+export const getPkgScript = async (npm: NPM, name: string, cwd?: string) => {
+  const script = (
+    await exec(format(command.getPkgScript, npm, name), { cwd })
+  ).stdout.trim();
+  return script === "{}" ? undefined : script;
 };
 
 export const setPkgDep = async (
@@ -147,7 +160,7 @@ export const addOnlyBuiltDeps = async (deps: readonly string[]) => {
 const tsconfig = "tsconfig.json" as const;
 
 export const setTsOptions = async (options: object, cwd?: string) => {
-  const file = path.join(cwd ?? "", tsconfig);
+  const file = join(cwd ?? "", tsconfig);
   const doc = Json.parse(await readFile(file, "utf8")) as any;
   void (doc.compilerOptions || (doc.compilerOptions = {}));
   doc.compilerOptions = { ...doc.compilerOptions, ...options };
@@ -164,7 +177,7 @@ export const setPathAlias = async (
   pathAlias: PathAlias,
   cwd?: string,
 ) => {
-  const file = path.join(cwd ?? "", tsconfig);
+  const file = join(cwd ?? "", tsconfig);
   const doc = Json.parse(await readFile(file, "utf8")) as any;
   void (doc.compilerOptions || (doc.compilerOptions = {}));
   doc.compilerOptions.baseUrl = base;
@@ -180,7 +193,7 @@ export const addPathAlias = async (
   paths: readonly string[],
   cwd?: string,
 ) => {
-  const file = path.join(cwd ?? "", tsconfig);
+  const file = join(cwd ?? "", tsconfig);
   const doc = Json.parse(await readFile(file, "utf8")) as any;
   void (doc.compilerOptions || (doc.compilerOptions = {}));
   void (doc.compilerOptions.paths || (doc.compilerOptions.paths = {}));
@@ -191,13 +204,11 @@ export const addPathAlias = async (
   await writeFile(file, text);
 };
 
-const pathAliasWithShared = {
-  "@/*": ["%s/src/*"],
-  "@shared/*": ["shared/src/*"],
-};
+const srcPath = "%s/src/*" as const;
+const pathAliasWithShared = { "@/*": [""], "@shared/*": ["shared/src/*"] };
 
 export const setPathAliasWithShared = async (cwd: string) => {
-  pathAliasWithShared["@/*"][0] = format(pathAliasWithShared["@/*"][0], cwd);
+  pathAliasWithShared["@/*"][0] = format(srcPath, cwd);
   await setPathAlias("..", pathAliasWithShared, cwd);
 };
 
@@ -210,11 +221,11 @@ export const installTmplt = async (
   cwd?: string,
   tar?: boolean,
 ) => {
-  const file = path.join(cwd ?? "", template[key].name);
+  const file = join(cwd ?? "", template[key].name);
   await writeFile(
     file,
     (
-      await axios.get(`${base}${template[key].path ?? ""}`, {
+      await get(`${base}${template[key].path ?? ""}`, {
         responseType: !tar ? "text" : "arraybuffer",
       })
     ).data,

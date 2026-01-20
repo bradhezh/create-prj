@@ -70,13 +70,8 @@ export type Conf = {
 
 export type Category = keyof typeof meta.system.option.category;
 
-export type Spinner = {
-  start: (msg?: string) => void;
-  stop: (msg?: string, code?: number) => void;
-};
-
 export interface IPlugin {
-  run: (conf: Conf, s: Spinner) => Promise<void>;
+  run: (conf: Conf) => Promise<void>;
 }
 export type Value = {
   name: string;

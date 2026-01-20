@@ -30,7 +30,10 @@ export const message = {
   cwdNonEmpty: "Current work directory must be empty.",
   pmUnsupported: "Only npm or pnpm supported for now.",
   pnpmRequired: "Only pnpm supported for monorepo for now.",
-  createPrj: "Creating projects",
-  proceed: "Proceeding",
-  prjCreated: "Creation completed!",
+  pluginStart: "Configuring %s",
+  setPkg: "Setting packages",
+  setWkspace: "Setting workspace",
+  setShared: "Setting shared",
+  pluginFinish: "%s completed!",
+  noteWidth: 70,
 } as const;

@@ -3,7 +3,7 @@ import { ExternalItem } from "@rspack/core";
 import nodeExternals from "webpack-node-externals";
 import { TsCheckerRspackPlugin } from "ts-checker-rspack-plugin";
 import { RunScriptWebpackPlugin } from "run-script-webpack-plugin";
-import path from "node:path";
+import { join } from "node:path";
 
 const dev = process.env.NODE_ENV === "development";
 
@@ -12,14 +12,14 @@ export default defineConfig({
   mode: !dev ? "production" : "development",
 
   entry: {
-    index: path.join(__dirname, "src", "index.ts"),
-    registry: path.join(__dirname, "src", "registry.ts"),
+    index: join(__dirname, "src", "index.ts"),
+    registry: join(__dirname, "src", "registry.ts"),
   },
   output: { library: { type: "commonjs" }, clean: true },
 
   resolve: {
     extensions: [".ts", "..."],
-    tsConfig: path.join(__dirname, "tsconfig.json"),
+    tsConfig: join(__dirname, "tsconfig.json"),
   },
 
   externals: [

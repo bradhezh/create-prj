@@ -1,3 +1,4 @@
+import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
 import { meta, NPM, Conf, PluginType } from "@/registry";
@@ -8,6 +9,7 @@ import {
   setPkgScript,
   createWkspace,
 } from "@/command";
+import { message } from "@/message";
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/type/monorepo" as const;
@@ -19,6 +21,10 @@ const template = {
 } as const;
 
 const run = async (conf: Conf) => {
+  const s = spinner();
+  s.start();
+  log.info(format(message.pluginStart, monorepo.label));
+
   const npm = conf.npm;
   const types = conf.monorepo!.types as PluginType[];
   const defType = types[0];
@@ -33,11 +39,20 @@ const run = async (conf: Conf) => {
   );
 
   await installTmplt(base, template, meta.system.type.monorepo);
+
+  log.info(message.setPkg);
   await setPkgName(npm, monoName);
   await setPkgVers(npm);
   await setPkgScripts(npm, types, defType, defTypeConf, beName, feName, mName);
+
+  log.info(message.setWkspace);
   await createWkspace(packages);
+
+  log.info(message.setShared);
   await createShared(npm, types, jsTypes);
+
+  log.info(format(message.pluginFinish, monorepo.label));
+  s.stop();
 };
 
 export const monorepo = {
