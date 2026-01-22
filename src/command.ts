@@ -98,6 +98,26 @@ export const getPkgScript = async (npm: NPM, name: string, cwd?: string) => {
   return script === "{}" ? undefined : script;
 };
 
+type Script = { name: string; script?: string };
+export type Scripts<T extends string> = Partial<Record<T, readonly Script[]>>;
+
+export const setPkgScripts = async <K extends string, T extends Scripts<K>>(
+  npm: NPM,
+  scripts: T & {
+    [K0 in keyof T]: K0 extends K ? readonly Script[] | undefined : never;
+  },
+  key: K,
+  cwd?: string,
+) => {
+  if (!scripts[key]) {
+    return false;
+  }
+  for (const { name, script } of scripts[key]) {
+    await setPkgScript(npm, name, script, cwd);
+  }
+  return true;
+};
+
 export const setPkgDep = async (
   npm: NPM,
   name: string,
@@ -114,6 +134,29 @@ export const setPkgDevDep = async (
   cwd?: string,
 ) => {
   await exec(format(command.setPkgDevDeps, npm, name, version), { cwd });
+};
+
+type PkgDep = { name: string; version: string; dev?: boolean };
+export type PkgDeps<T extends string> = Partial<Record<T, readonly PkgDep[]>>;
+
+export const setPkgDeps = async <K extends string, T extends PkgDeps<K>>(
+  npm: NPM,
+  deps: T & {
+    [K0 in keyof T]: K0 extends K ? readonly PkgDep[] | undefined : never;
+  },
+  key: K,
+  cwd?: string,
+) => {
+  if (!deps[key]) {
+    return false;
+  }
+  for (const { name, version } of deps[key].filter((e) => !e.dev)) {
+    await setPkgDep(npm, name, version, cwd);
+  }
+  for (const { name, version } of deps[key].filter((e) => e.dev)) {
+    await setPkgDevDep(npm, name, version, cwd);
+  }
+  return true;
 };
 
 export const setPkgBin = async (
@@ -155,6 +198,24 @@ export const addOnlyBuiltDeps = async (deps: readonly string[]) => {
   void (doc.onlyBuiltDependencies || (doc.onlyBuiltDependencies = []));
   doc.onlyBuiltDependencies.push(...deps);
   await writeFile(workspace, Yaml.stringify(doc));
+};
+
+export type BuiltDeps<T extends string> = Partial<Record<T, readonly string[]>>;
+
+export const setWkspaceBuiltDeps = async <
+  K extends string,
+  T extends BuiltDeps<K>,
+>(
+  deps: T & {
+    [K0 in keyof T]: K0 extends K ? readonly string[] | undefined : never;
+  },
+  key: K,
+) => {
+  if (!deps[key]) {
+    return false;
+  }
+  await addOnlyBuiltDeps(deps[key]);
+  return true;
 };
 
 const tsconfig = "tsconfig.json" as const;
@@ -212,15 +273,19 @@ export const setPathAliasWithShared = async (cwd: string) => {
   await setPathAlias("..", pathAliasWithShared, cwd);
 };
 
-type Template = Record<string, { name: string; path?: string }>;
+type Tmplt = { name: string; path?: string };
+export type Template<T extends string> = Partial<Record<T, Tmplt>>;
 
-export const installTmplt = async (
+export const installTmplt = async <K extends string, T extends Template<K>>(
   base: string,
-  template: Template,
-  key: string,
+  template: T & { [K0 in keyof T]: K0 extends K ? Tmplt | undefined : never },
+  key: K,
   cwd?: string,
   tar?: boolean,
 ) => {
+  if (!template[key]) {
+    return false;
+  }
   const file = join(cwd ?? "", template[key].name);
   await writeFile(
     file,
@@ -231,8 +296,9 @@ export const installTmplt = async (
     ).data,
   );
   if (!tar) {
-    return;
+    return true;
   }
   await exec(format(command.tar, template[key].name), { cwd });
   await rm(file, { force: true });
+  return true;
 };

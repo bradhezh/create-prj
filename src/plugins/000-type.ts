@@ -5,7 +5,7 @@ import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 import wrapAnsi from "wrap-ansi";
 
-import { value } from "./const";
+import { value, FrmwkValue } from "./const";
 import { regType, meta, NPM, Conf, PluginType } from "@/registry";
 import {
   installTmplt,
@@ -13,17 +13,11 @@ import {
   setPkgVers,
   setPkgScript,
   getPkgScript,
-  addOnlyBuiltDeps,
+  setPkgScripts,
+  setWkspaceBuiltDeps,
   setPathAliasWithShared,
 } from "@/command";
 import { message as msg } from "@/message";
-
-const message = {
-  ...msg,
-  noTmpltCmd: 'No template or command provided for "%s"',
-  nextWkspaceRenamed:
-    "%s/pnpm-workspace.yaml has been renamed %s/pnpm-workspace.yaml.bak, please check the content and merge necessary ones into the root workspace.",
-} as const;
 
 const run = (type: PluginType) => {
   return async (conf: Conf) => {
@@ -31,28 +25,108 @@ const run = (type: PluginType) => {
     s.start();
 
     const npm = conf.npm;
-    const name = conf[type]!.name!;
+    const name = conf[type]?.name ?? type;
     const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
-    const key = (conf[type]!.framework as string | undefined) ?? type;
+    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
     const shared = (conf.monorepo?.types.length ?? 0) > 1;
 
-    log.info(format(message.pluginStart, name));
-    await install(npm, key, cwd, s);
+    log.info(format(message.pluginStart, `"${name}"`));
+    await install(npm, typeFrmwk, cwd, s);
 
     log.info(message.setPkg);
     await setPkgName(npm, name, cwd);
     await setPkgVers(npm, cwd);
-    await setPkgScripts(npm, key, cwd);
+    await typeSetPkgScripts(npm, typeFrmwk, cwd);
 
     log.info(message.setWkspace);
-    await setWkspace(key, cwd);
+    await setWkspace(typeFrmwk, cwd);
 
     log.info(message.setShared);
-    await setShared(shared, key, cwd);
+    await setShared(shared, typeFrmwk, cwd);
 
-    log.info(format(message.pluginFinish, name));
+    log.info(format(message.pluginFinish, `"${name}"`));
     s.stop();
   };
+};
+
+const install = async (
+  npm: NPM,
+  typeFrmwk: TypeFrmwk,
+  cwd: string,
+  s: Spinner,
+) => {
+  if (await installTmplt(base, template, typeFrmwk, cwd, true)) {
+    return;
+  }
+  if (!(typeFrmwk in command)) {
+    log.warn(format(message.noTmpltCmd, typeFrmwk));
+    return;
+  }
+  await create(npm, command[typeFrmwk]!, cwd, s);
+};
+
+const create = async (npm: NPM, command: string, cwd: string, s: Spinner) => {
+  const cmd = format(command, npm, cwd);
+  log.info(wrapAnsi(cmd, message.noteWidth));
+  s.stop();
+  execSync(cmd, { stdio: "inherit" });
+  s.start();
+  const gitDir = join(cwd, git);
+  if (
+    !(await access(gitDir)
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    return;
+  }
+  await rm(gitDir, { recursive: true, force: true });
+};
+
+const typeSetPkgScripts = async (
+  npm: NPM,
+  typeFrmwk: TypeFrmwk,
+  cwd: string,
+) => {
+  await setPkgScripts(npm, scripts, typeFrmwk, cwd);
+  if (
+    typeFrmwk !== value.framework.next ||
+    !(await getPkgScript(npm, nextScript.copyDist.name, "."))
+  ) {
+    return;
+  }
+  for (const { name, script } of Object.values(nextScript)) {
+    await setPkgScript(npm, name, script, ".");
+  }
+};
+
+const setWkspace = async (typeFrmwk: TypeFrmwk, cwd: string) => {
+  await setWkspaceBuiltDeps(builtDeps, typeFrmwk);
+  const wkspace = join(cwd, workspace);
+  if (
+    typeFrmwk !== value.framework.next ||
+    cwd === "." ||
+    !(await access(wkspace)
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    return;
+  }
+  await rename(wkspace, `${wkspace}${bak}`);
+  log.warn(
+    wrapAnsi(format(message.nextWkspaceRenamed, cwd, cwd), message.noteWidth),
+  );
+};
+
+const setShared = async (
+  shared: boolean,
+  typeFrmwk: TypeFrmwk,
+  cwd: string,
+) => {
+  if (!shared) {
+    return;
+  }
+  await setPathAliasWithShared(cwd);
+  await installTmplt(base, patchTmplt, typeFrmwk, cwd, true);
 };
 
 for (const { name, label, frameworks } of [
@@ -175,12 +249,8 @@ for (const { name, label } of [
   });
 }
 
-const command = {
-  react: "%s create vite %s --template react-ts",
-  next: "%s create next-app %s --ts --no-react-compiler --no-src-dir -app --api --eslint --tailwind --skip-install --disable-git",
-  expo: "%s create expo-app %s --no-install",
-} as const;
-type CmdKey = keyof typeof command;
+type TypeFrmwk = PluginType | NonNullable<FrmwkValue>;
+type Spinner = ReturnType<typeof spinner>;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/type" as const;
@@ -193,40 +263,18 @@ const template = {
   nest: { name: "nest.tar", path: "/nest/nest.tar" },
 } as const;
 
-type Spinner = ReturnType<typeof spinner>;
+const patchTmplt = {
+  express: { name: "patch.tar", path: "/express/patch/patch.tar" },
+  nest: { name: "patch.tar", path: "/nest/patch/patch.tar" },
+} as const;
 
-const install = async (npm: NPM, key: string, cwd: string, s: Spinner) => {
-  if (key in template) {
-    await installTmplt(base, template, key, cwd, true);
-    return;
-  }
-  if (key in command) {
-    await create(npm, command[key as CmdKey], cwd, s);
-    return;
-  }
-  log.warn(format(message.noTmpltCmd, key));
-};
+const command: Partial<Record<TypeFrmwk, string>> = {
+  react: "%s create vite %s --template react-ts",
+  next: "%s create next-app %s --ts --no-react-compiler --no-src-dir -app --api --eslint --tailwind --skip-install --disable-git",
+  expo: "%s create expo-app %s --no-install",
+} as const;
 
-const gitDir = ".git" as const;
-
-const create = async (npm: NPM, command: string, cwd: string, s: Spinner) => {
-  const cmd = format(command, npm, cwd);
-  log.info(wrapAnsi(cmd, message.noteWidth));
-  s.stop();
-  execSync(cmd, { stdio: "inherit" });
-  s.start();
-  const git = join(cwd, gitDir);
-  if (
-    !(await access(git)
-      .then(() => true)
-      .catch(() => false))
-  ) {
-    return;
-  }
-  await rm(git, { recursive: true, force: true });
-};
-
-const script = {
+const scripts = {
   react: [{ name: "start", script: "vite preview" }],
   expo: [
     {
@@ -236,7 +284,6 @@ const script = {
     { name: "dev", script: "expo start" },
   ],
 } as const;
-type ScriptKey = keyof typeof script;
 
 const nextScript = {
   copyDist: { name: "copy-dist", script: undefined },
@@ -247,60 +294,15 @@ const nextScript = {
   start: { name: "start:fe", script: "pnpm --filter frontend start" },
 } as const;
 
-const setPkgScripts = async (npm: NPM, key: string, cwd: string) => {
-  if (key in script) {
-    for (const { name, script: s } of script[key as ScriptKey]) {
-      await setPkgScript(npm, name, s, cwd);
-    }
-  }
-  if (
-    key !== value.framework.next ||
-    !(await getPkgScript(npm, nextScript.copyDist.name, "."))
-  ) {
-    return;
-  }
-  for (const { name, script: s } of Object.values(nextScript)) {
-    await setPkgScript(npm, name, s, ".");
-  }
-};
+const builtDeps = { nest: ["@nestjs/core"] } as const;
 
+const git = ".git" as const;
 const workspace = "pnpm-workspace.yaml" as const;
 const bak = ".bak" as const;
-const onlyBuiltDep = { nest: ["@nestjs/core"] } as const;
-type DepKey = keyof typeof onlyBuiltDep;
 
-const setWkspace = async (key: string, cwd: string) => {
-  if (key in onlyBuiltDep) {
-    await addOnlyBuiltDeps(onlyBuiltDep[key as DepKey]);
-  }
-  const wkspace = join(cwd, workspace);
-  if (
-    key !== value.framework.next ||
-    cwd === "." ||
-    !(await access(wkspace)
-      .then(() => true)
-      .catch(() => false))
-  ) {
-    return;
-  }
-  await rename(wkspace, `${wkspace}${bak}`);
-  log.warn(
-    wrapAnsi(format(message.nextWkspaceRenamed, cwd, cwd), message.noteWidth),
-  );
-};
-
-const patch = {
-  express: { name: "patch.tar", path: "/express/patch/patch.tar" },
-  nest: { name: "patch.tar", path: "/nest/patch/patch.tar" },
+const message = {
+  ...msg,
+  noTmpltCmd: 'No template or command provided for "%s"',
+  nextWkspaceRenamed:
+    "%s/pnpm-workspace.yaml has been renamed %s/pnpm-workspace.yaml.bak, please check the content and merge necessary ones into the root workspace.",
 } as const;
-
-const setShared = async (shared: boolean, key: string, cwd: string) => {
-  if (!shared) {
-    return;
-  }
-  await setPathAliasWithShared(cwd);
-  if (!(key in patch)) {
-    return;
-  }
-  await installTmplt(base, patch, key, cwd, true);
-};

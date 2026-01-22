@@ -5,8 +5,6 @@ import { value } from "./const";
 import { regValue, meta, Conf } from "@/registry";
 import { message } from "@/message";
 
-const label = "Jest" as const;
-
 const run = async (_conf: Conf) => {
   const s = spinner();
   s.start();
@@ -17,6 +15,8 @@ const run = async (_conf: Conf) => {
   log.info(format(message.pluginFinish, label));
   s.stop();
 };
+
+const label = "Jest" as const;
 
 regValue(
   { name: value.test.jest, label, plugin: { run }, disables: [], enables: [] },

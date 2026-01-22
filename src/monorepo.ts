@@ -11,15 +11,6 @@ import {
 } from "@/command";
 import { message } from "@/message";
 
-const base =
-  "https://raw.githubusercontent.com/bradhezh/prj-template/master/type/monorepo" as const;
-
-const template = {
-  monorepo: { name: "package.json", path: "/package.json" },
-  shared: { name: "shared.tar", path: "/shared/shared.tar" },
-  sharedJs: { name: "shared.tar", path: "/shared/js/shared.tar" },
-} as const;
-
 const run = async (conf: Conf) => {
   const s = spinner();
   s.start();
@@ -28,7 +19,7 @@ const run = async (conf: Conf) => {
   const npm = conf.npm;
   const types = conf.monorepo!.types as PluginType[];
   const defType = types[0];
-  const defTypeConf = conf[defType];
+  const defTypeName = conf[defType]?.name ?? defType;
   const monoName = conf.monorepo!.name;
   const beName = conf.backend?.name ?? meta.plugin.type.backend;
   const feName = conf.frontend?.name ?? meta.plugin.type.frontend;
@@ -38,12 +29,20 @@ const run = async (conf: Conf) => {
     (e) => conf[e]?.typescript === meta.plugin.value.none,
   );
 
-  await installTmplt(base, template, meta.system.type.monorepo);
+  await installTmplt(base, { monorepo: template.monorepo }, "monorepo");
 
   log.info(message.setPkg);
   await setPkgName(npm, monoName);
   await setPkgVers(npm);
-  await setPkgScripts(npm, types, defType, defTypeConf, beName, feName, mName);
+  await monoSetPkgScripts(
+    npm,
+    types,
+    defType,
+    defTypeName,
+    beName,
+    feName,
+    mName,
+  );
 
   log.info(message.setWkspace);
   await createWkspace(packages);
@@ -55,55 +54,33 @@ const run = async (conf: Conf) => {
   s.stop();
 };
 
-export const monorepo = {
-  name: meta.system.type.monorepo,
-  label: "Monorepo",
-  plugin: { run },
-  options: [],
-  disables: [],
-  enables: [],
-};
-
-const script = {
-  build: {
-    name: "build",
-    script: "pnpm --filter %s build",
-    fullstack:
-      "pnpm --filter %s build && pnpm --filter %s build && pnpm copy-dist",
-  },
-  dev: { name: "dev", script: "pnpm --filter %s dev" },
-  start: { name: "start", script: "pnpm --filter %s start" },
-  copyDist: {
-    name: "copy-dist",
-    script: 'pnpm dlx rimraf %s/dist && pnpm dlx cpx "%s/dist/**/*" %s/dist',
-  },
-  frontend: { suffix: ":fe" },
-  mobile: { suffix: ":m" },
-} as const;
-
-const setPkgScripts = async (
+const monoSetPkgScripts = async (
   npm: NPM,
   types: PluginType[],
   defType: PluginType,
-  defTypeConf: Conf[PluginType],
+  defTypeName: string,
   beName: string,
   feName: string,
   mName: string,
 ) => {
-  let defName, defIsMobile;
+  let defName, noStart;
   if (types.includes(meta.plugin.type.backend)) {
     defName = beName;
   } else if (types.includes(meta.plugin.type.frontend)) {
     defName = feName;
   } else if (types.length === 1) {
-    defName = defTypeConf?.name ?? defType;
-    if (defType === meta.plugin.type.mobile) {
-      defIsMobile = true;
+    defName = defTypeName;
+    if (
+      defType === meta.plugin.type.mobile ||
+      defType === meta.plugin.type.cli ||
+      defType === meta.plugin.type.lib
+    ) {
+      noStart = true;
     }
   }
   await setBuild(npm, types, beName, feName, mName, defName);
   await setDev(npm, types, feName, mName, defName);
-  await setStart(npm, defName, defIsMobile);
+  await setStart(npm, defName, noStart);
 };
 
 const setBuild = async (
@@ -177,8 +154,8 @@ const setDev = async (
   }
 };
 
-const setStart = async (npm: NPM, defName?: string, defIsMobile?: boolean) => {
-  if (!defName || defIsMobile) {
+const setStart = async (npm: NPM, defName?: string, noStart?: boolean) => {
+  if (!defName || noStart) {
     return;
   }
   await setPkgScript(
@@ -188,8 +165,6 @@ const setStart = async (npm: NPM, defName?: string, defIsMobile?: boolean) => {
   );
 };
 
-const tmpltKey = { sharedJs: "sharedJs" } as const;
-
 const createShared = async (
   npm: NPM,
   types: PluginType[],
@@ -198,14 +173,57 @@ const createShared = async (
   if (types.length <= 1) {
     return;
   }
-  await installTmplt(
-    base,
-    template,
-    types.filter((e) => !jsTypes.includes(e)).length > 1
-      ? meta.system.type.shared
-      : tmpltKey.sharedJs,
-    meta.system.type.shared,
-    true,
-  );
+  if (types.filter((e) => !jsTypes.includes(e)).length > 1) {
+    await installTmplt(
+      base,
+      { shared: template.shared },
+      "shared",
+      meta.system.type.shared,
+      true,
+    );
+  } else {
+    await installTmplt(
+      base,
+      { jsShared: template.jsShared },
+      "jsShared",
+      meta.system.type.shared,
+      true,
+    );
+  }
   await setPkgVers(npm, meta.system.type.shared);
 };
+
+export const monorepo = {
+  name: meta.system.type.monorepo,
+  label: "Monorepo",
+  plugin: { run },
+  options: [],
+  disables: [],
+  enables: [],
+};
+
+const base =
+  "https://raw.githubusercontent.com/bradhezh/prj-template/master/type/monorepo" as const;
+
+const template = {
+  monorepo: { name: "package.json", path: "/package.json" },
+  shared: { name: "shared.tar", path: "/shared/shared.tar" },
+  jsShared: { name: "shared.tar", path: "/shared/js/shared.tar" },
+} as const;
+
+const script = {
+  build: {
+    name: "build",
+    script: "pnpm --filter %s build",
+    fullstack:
+      "pnpm --filter %s build && pnpm --filter %s build && pnpm copy-dist",
+  },
+  dev: { name: "dev", script: "pnpm --filter %s dev" },
+  start: { name: "start", script: "pnpm --filter %s start" },
+  copyDist: {
+    name: "copy-dist",
+    script: 'pnpm dlx rimraf %s/dist && pnpm dlx cpx "%s/dist/**/*" %s/dist',
+  },
+  frontend: { suffix: ":fe" },
+  mobile: { suffix: ":m" },
+} as const;

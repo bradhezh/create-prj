@@ -141,11 +141,17 @@ export const regOption = (
   option: Option,
   category: Category,
   type?: string,
+  replace?: boolean,
   index?: number,
 ) => {
   const opts = getOptions(category, type, option.name);
-  if (opts.find((e) => e.name === option.name)) {
-    throw new Error(message.optionExist);
+  const found = opts.findIndex((e) => e.name === option.name);
+  if (found !== -1) {
+    if (!replace) {
+      throw new Error(message.optionExist);
+    }
+    opts.splice(found, 1, option);
+    return;
   }
   if (index === undefined) {
     opts.push(option);
@@ -159,13 +165,26 @@ export const useOption = (
   label: string,
   category: Category,
   type?: string,
+  replace?: boolean,
   index?: number,
   multiple?: boolean,
   optional?: boolean,
   initial?: string,
 ) => {
   const opts = getOptions(category, type, name);
-  if (opts.find((e) => e.name === name)) {
+  const found = opts.findIndex((e) => e.name === name);
+  if (found !== -1) {
+    if (!replace) {
+      return;
+    }
+    opts.splice(found, 1, {
+      name,
+      label,
+      values: [],
+      multiple,
+      optional,
+      initial,
+    });
     return;
   }
   if (index === undefined) {
@@ -207,6 +226,28 @@ export const disableOptions = (value: Value) => {
     const opt = getOption(option, type);
     opt.disabled = true;
   }
+};
+
+export const getDisableTypesAndFrmwks = (option: string) => {
+  return [
+    ...options.type
+      .filter((type) =>
+        type.disables.find((e) => e.option === option && !e.type),
+      )
+      .map((type) => type.name),
+    ...options.type
+      .map((type) => type.options.map((opt) => ({ type: type.name, opt })))
+      .flat()
+      .filter(
+        ({ type, opt }) =>
+          opt.name ===
+          meta.plugin.option.type[type as TypeWithOption]?.framework,
+      )
+      .map(({ type: _t, opt }) => opt.values)
+      .flat()
+      .filter((v) => v.disables.find((e) => e.option === option && !e.type))
+      .map((v) => v.name),
+  ];
 };
 
 const getOptions = (category: Category, type?: string, option?: string) => {
