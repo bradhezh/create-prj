@@ -47,8 +47,10 @@ const run = async (conf: Conf) => {
   log.info(message.setWkspace);
   await createWkspace(packages);
 
-  log.info(message.setShared);
-  await createShared(npm, types, jsTypes);
+  if (types.length > 1) {
+    log.info(message.setShared);
+    await createShared(npm, types, jsTypes);
+  }
 
   log.info(format(message.pluginFinish, label));
   s.stop();
@@ -105,22 +107,13 @@ const setBuild = async (
       script.build.name,
       format(script.build.fullstack, beName, feName),
     );
-  } else if (defName) {
+  } else if (defName && defName !== mName) {
     await setPkgScript(
       npm,
       script.build.name,
       format(script.build.script, defName),
     );
   }
-
-  if (!types.includes(meta.plugin.type.mobile) || mName === defName) {
-    return;
-  }
-  await setPkgScript(
-    npm,
-    `${script.build.name}${script.mobile.suffix}`,
-    format(script.build.script, mName),
-  );
 };
 
 const setDev = async (
@@ -155,14 +148,13 @@ const setDev = async (
 };
 
 const setStart = async (npm: NPM, defName?: string, noStart?: boolean) => {
-  if (!defName || noStart) {
-    return;
+  if (defName && !noStart) {
+    await setPkgScript(
+      npm,
+      script.start.name,
+      format(script.start.script, defName),
+    );
   }
-  await setPkgScript(
-    npm,
-    script.start.name,
-    format(script.start.script, defName),
-  );
 };
 
 const createShared = async (
@@ -170,9 +162,6 @@ const createShared = async (
   types: PluginType[],
   jsTypes: PluginType[],
 ) => {
-  if (types.length <= 1) {
-    return;
-  }
   if (types.filter((e) => !jsTypes.includes(e)).length > 1) {
     await installTmplt(
       base,

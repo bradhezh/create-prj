@@ -1,6 +1,6 @@
 import { execSync, exec as execAsync } from "node:child_process";
 import { promisify, format } from "node:util";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 
@@ -37,7 +37,13 @@ const init = async () => {
     log.warn(message.noGit);
     return false;
   }
-  await installTmplt(base, { git: template }, "git");
+  if (
+    !(await access(template.name)
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    await installTmplt(base, { git: template }, "git");
+  }
   log.info(command.init);
   await exec(command.init);
   log.info(command.add);

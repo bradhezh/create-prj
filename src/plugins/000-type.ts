@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { rm, rename, access } from "node:fs/promises";
+import { rm, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
@@ -15,6 +15,7 @@ import {
   getPkgScript,
   setPkgScripts,
   setWkspaceBuiltDeps,
+  rmPnpmNodeLinker,
   setPathAliasWithShared,
 } from "@/command";
 import { message as msg } from "@/message";
@@ -41,8 +42,10 @@ const run = (type: PluginType) => {
     log.info(message.setWkspace);
     await setWkspace(typeFrmwk, cwd);
 
-    log.info(message.setShared);
-    await setShared(shared, typeFrmwk, cwd);
+    if (shared) {
+      log.info(message.setShared);
+      await setShared(typeFrmwk, cwd);
+    }
 
     log.info(format(message.pluginFinish, `"${name}"`));
     s.stop();
@@ -55,14 +58,13 @@ const install = async (
   cwd: string,
   s: Spinner,
 ) => {
-  if (await installTmplt(base, template, typeFrmwk, cwd, true)) {
-    return;
+  await installTmplt(base, template, typeFrmwk, cwd, true);
+  if (command[typeFrmwk]) {
+    await create(npm, command[typeFrmwk], cwd, s);
   }
-  if (!(typeFrmwk in command)) {
+  if (!(typeFrmwk in template) && !command[typeFrmwk]) {
     log.warn(format(message.noTmpltCmd, typeFrmwk));
-    return;
   }
-  await create(npm, command[typeFrmwk]!, cwd, s);
 };
 
 const create = async (npm: NPM, command: string, cwd: string, s: Spinner) => {
@@ -71,15 +73,7 @@ const create = async (npm: NPM, command: string, cwd: string, s: Spinner) => {
   s.stop();
   execSync(cmd, { stdio: "inherit" });
   s.start();
-  const gitDir = join(cwd, git);
-  if (
-    !(await access(gitDir)
-      .then(() => true)
-      .catch(() => false))
-  ) {
-    return;
-  }
-  await rm(gitDir, { recursive: true, force: true });
+  await rm(join(cwd, git), { recursive: true, force: true });
 };
 
 const typeSetPkgScripts = async (
@@ -89,42 +83,38 @@ const typeSetPkgScripts = async (
 ) => {
   await setPkgScripts(npm, scripts, typeFrmwk, cwd);
   if (
-    typeFrmwk !== value.framework.next ||
-    !(await getPkgScript(npm, nextScript.copyDist.name, "."))
+    typeFrmwk === value.framework.next &&
+    (await getPkgScript(npm, nextScript.copyDist.name, "."))
   ) {
-    return;
-  }
-  for (const { name, script } of Object.values(nextScript)) {
-    await setPkgScript(npm, name, script, ".");
+    for (const { name, script } of Object.values(nextScript)) {
+      await setPkgScript(npm, name, script, ".");
+    }
   }
 };
 
 const setWkspace = async (typeFrmwk: TypeFrmwk, cwd: string) => {
   await setWkspaceBuiltDeps(builtDeps, typeFrmwk);
   const wkspace = join(cwd, workspace);
-  if (
-    typeFrmwk !== value.framework.next ||
-    cwd === "." ||
-    !(await access(wkspace)
-      .then(() => true)
-      .catch(() => false))
-  ) {
-    return;
+  if (typeFrmwk === value.framework.next && cwd !== ".") {
+    if (
+      await rename(wkspace, `${wkspace}${bak}`)
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      log.warn(
+        wrapAnsi(
+          format(message.nextWkspaceRenamed, cwd, cwd),
+          message.noteWidth,
+        ),
+      );
+    }
   }
-  await rename(wkspace, `${wkspace}${bak}`);
-  log.warn(
-    wrapAnsi(format(message.nextWkspaceRenamed, cwd, cwd), message.noteWidth),
-  );
+  if (typeFrmwk === value.framework.expo && cwd !== ".") {
+    await rmPnpmNodeLinker();
+  }
 };
 
-const setShared = async (
-  shared: boolean,
-  typeFrmwk: TypeFrmwk,
-  cwd: string,
-) => {
-  if (!shared) {
-    return;
-  }
+const setShared = async (typeFrmwk: TypeFrmwk, cwd: string) => {
   await setPathAliasWithShared(cwd);
   await installTmplt(base, patchTmplt, typeFrmwk, cwd, true);
 };
@@ -276,13 +266,7 @@ const command: Partial<Record<TypeFrmwk, string>> = {
 
 const scripts = {
   react: [{ name: "start", script: "vite preview" }],
-  expo: [
-    {
-      name: "build",
-      script: "eas build --platform android --profile development",
-    },
-    { name: "dev", script: "expo start" },
-  ],
+  expo: [{ name: "dev", script: "expo start" }],
 } as const;
 
 const nextScript = {

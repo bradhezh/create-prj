@@ -10,7 +10,13 @@ import {
   Conf,
   PluginType,
 } from "@/registry";
-import { installTmplt, setPkgScripts, setPkgDeps, Template } from "@/command";
+import {
+  installTmplt,
+  setPkgScripts,
+  setPkgDeps,
+  setWkspaceBuiltDeps,
+  Template,
+} from "@/command";
 import { message as msg } from "@/message";
 
 const run = async (conf: Conf) => {
@@ -26,18 +32,24 @@ const run = async (conf: Conf) => {
   const shared = types0.length > 1 ? "withShared" : undefined;
 
   for (const type of types) {
+    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
+    if (getDisableTypesAndFrmwks(meta.plugin.option.test).includes(typeFrmwk)) {
+      continue;
+    }
+
     const name = conf[type]?.name ?? type;
     const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
-    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
     const ts = conf[type]?.typescript as Ts;
 
     log.info(format(message.forType, name));
     await install(typeFrmwk, ts, shared, cwd);
 
     log.info(message.setPkg);
-    await jeSetPkgScripts(npm, typeFrmwk, cwd);
+    await setPkgScripts(npm, { default: scripts }, "default", cwd);
     await jeSetPkgDeps(npm, type, typeFrmwk, ts, cwd);
   }
+  log.info(message.setWkspace);
+  await setWkspaceBuiltDeps({ default: builtDeps }, "default");
 
   log.info(format(message.pluginFinish, label));
   s.stop();
@@ -49,27 +61,15 @@ const install = async (
   shared: Shared,
   cwd: string,
 ) => {
-  if (getDisableTypesAndFrmwks(meta.plugin.option.test).includes(typeFrmwk)) {
-    return;
-  }
   if (typeFrmwk === value.framework.nest) {
     await installTmplt(base, nestTmplt, shared ?? "default", cwd);
     await installTmplt(base, { nest: nestSrcTmplt }, "nest", cwd, true);
-    return;
+  } else {
+    const tmplt = template[ts ?? "default"] ?? template.default!;
+    const tmplt0 = tmplt[shared ?? "default"] ?? tmplt.default!;
+    await installTmplt(base, tmplt0, typeFrmwk, cwd);
+    await installTmplt(base, srcTmplt, ts ?? "default", cwd, true);
   }
-  const tmplt = ts && ts in template ? template[ts]! : template.default!;
-  const tmplt0 = shared && shared in tmplt ? tmplt[shared]! : tmplt.default!;
-  if (!(await installTmplt(base, tmplt0, typeFrmwk, cwd))) {
-    await installTmplt(base, { default: tmplt0.default }, "default", cwd);
-  }
-  await installTmplt(base, srcTmplt, ts ?? "default", cwd, true);
-};
-
-const jeSetPkgScripts = async (npm: NPM, typeFrmwk: TypeFrmwk, cwd: string) => {
-  if (getDisableTypesAndFrmwks(meta.plugin.option.test).includes(typeFrmwk)) {
-    return;
-  }
-  await setPkgScripts(npm, { default: [script] }, "default", cwd);
 };
 
 const jeSetPkgDeps = async (
@@ -79,9 +79,6 @@ const jeSetPkgDeps = async (
   ts: Ts,
   cwd: string,
 ) => {
-  if (getDisableTypesAndFrmwks(meta.plugin.option.test).includes(typeFrmwk)) {
-    return;
-  }
   await setPkgDeps(npm, { default: pkgDeps }, "default", cwd);
   if (ts !== meta.plugin.value.none) {
     await setPkgDeps(npm, { default: tsPkgDeps }, "default", cwd);
@@ -115,10 +112,9 @@ regValue(
 type TypeFrmwk =
   | PluginType
   | NonNullable<FrmwkValue>
-  | typeof meta.system.type.shared
-  | "default";
-type Ts = TsValue | "default";
-type Shared = "withShared" | undefined | "default";
+  | typeof meta.system.type.shared;
+type Ts = TsValue;
+type Shared = "withShared" | undefined;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/jest" as const;
@@ -133,8 +129,13 @@ const nestTmplt = {
 
 const template: Partial<
   Record<
-    NonNullable<Ts>,
-    Partial<Record<NonNullable<Shared>, Template<Exclude<TypeFrmwk, "nest">>>>
+    NonNullable<Ts> | "default",
+    Partial<
+      Record<
+        NonNullable<Shared> | "default",
+        Template<Exclude<TypeFrmwk, "nest">>
+      >
+    >
   >
 > = {
   none: {
@@ -186,7 +187,7 @@ const srcTmplt = {
   default: { name: "jest.tar", path: "/jest.tar" },
 } as const;
 
-const script = { name: "test", script: "jest --passWithNoTests" } as const;
+const scripts = [{ name: "test", script: "jest --passWithNoTests" }] as const;
 
 const pkgDeps = [
   { name: "@swc/core", version: "^1", dev: true },
@@ -204,6 +205,8 @@ const beTsPkgDeps = [
 const nestPkgDeps = [
   { name: "@nestjs/testing", version: "^11", dev: true },
 ] as const;
+
+const builtDeps = ["@swc/core", "unrs-resolver"] as const;
 
 const message = {
   ...msg,

@@ -25,26 +25,20 @@ const run = async (conf: Conf) => {
 };
 
 const reinstall = async (npm: NPM, name: string, ts: Ts, cwd: string) => {
-  if (ts === value.typescript.nodec) {
-    return;
-  }
   if (ts === value.typescript.metadata) {
     await setTsOptions(
       { experimentalDecorators: true, emitDecoratorMetadata: true },
       cwd,
     );
-    return;
+  } else if (ts === meta.plugin.value.none) {
+    log.info(message.reinstall);
+    for (const replace of replaces) {
+      await rm(join(cwd, replace), { recursive: true, force: true });
+    }
+    await installTmplt(base, { node: template }, "node", cwd, true);
+    await setPkgName(npm, name, cwd);
+    await setPkgVers(npm, cwd);
   }
-  if (ts !== meta.plugin.value.none) {
-    return;
-  }
-  log.info(message.reinstall);
-  for (const replace of replaces) {
-    await rm(join(cwd, replace), { recursive: true, force: true });
-  }
-  await installTmplt(base, { node: template }, "node", cwd, true);
-  await setPkgName(npm, name, cwd);
-  await setPkgVers(npm, cwd);
 };
 
 regOption(

@@ -25,9 +25,13 @@ const run = async (conf: Conf) => {
   ) as PluginType[];
 
   for (const type of types) {
+    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
+    if (getDisableTypesAndFrmwks(meta.plugin.option.lint).includes(typeFrmwk)) {
+      continue;
+    }
+
     const name = conf[type]?.name ?? type;
     const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
-    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
     const ts = conf[type]?.typescript as Ts;
     const test = conf.test as Test;
 
@@ -35,8 +39,8 @@ const run = async (conf: Conf) => {
     await install(typeFrmwk, ts, test, cwd);
 
     log.info(message.setPkg);
-    await elSetPkgScripts(npm, typeFrmwk, cwd);
-    await elSetPkgDeps(npm, typeFrmwk, ts, cwd);
+    await setPkgScripts(npm, { default: scripts }, "default", cwd);
+    await elSetPkgDeps(npm, ts, cwd);
   }
 
   log.info(format(message.pluginFinish, label));
@@ -49,38 +53,16 @@ const install = async (
   test: Test,
   cwd: string,
 ) => {
-  if (getDisableTypesAndFrmwks(meta.plugin.option.lint).includes(typeFrmwk)) {
-    return;
-  }
-  const tmplt = ts && ts in template ? template[ts]! : template.default!;
-  const tmplt0 = test && test in tmplt ? tmplt[test]! : tmplt.default!;
-  if (await installTmplt(base, tmplt0, typeFrmwk, cwd)) {
-    return;
-  }
-  await installTmplt(base, { default: tmplt0.default }, "default", cwd);
+  const tmplt = template[ts ?? "default"] ?? template.default!;
+  const tmplt0 = tmplt[test ?? "default"] ?? tmplt.default!;
+  await installTmplt(base, tmplt0, typeFrmwk, cwd);
 };
 
-const elSetPkgScripts = async (npm: NPM, typeFrmwk: TypeFrmwk, cwd: string) => {
-  if (getDisableTypesAndFrmwks(meta.plugin.option.lint).includes(typeFrmwk)) {
-    return;
-  }
-  await setPkgScripts(npm, { default: [script] }, "default", cwd);
-};
-
-const elSetPkgDeps = async (
-  npm: NPM,
-  typeFrmwk: TypeFrmwk,
-  ts: Ts,
-  cwd: string,
-) => {
-  if (getDisableTypesAndFrmwks(meta.plugin.option.lint).includes(typeFrmwk)) {
-    return;
-  }
+const elSetPkgDeps = async (npm: NPM, ts: Ts, cwd: string) => {
   await setPkgDeps(npm, { default: pkgDeps }, "default", cwd);
-  if (ts === meta.plugin.value.none) {
-    return;
+  if (ts !== meta.plugin.value.none) {
+    await setPkgDeps(npm, { default: tsPkgDeps }, "default", cwd);
   }
-  await setPkgDeps(npm, { default: tsPkgDeps }, "default", cwd);
 };
 
 const label = "ESLint" as const;
@@ -101,18 +83,17 @@ regValue(
 type TypeFrmwk =
   | PluginType
   | NonNullable<FrmwkValue>
-  | typeof meta.system.type.shared
-  | "default";
-type Ts = TsValue | "default";
-type Test = TestValue | "default";
+  | typeof meta.system.type.shared;
+type Ts = TsValue;
+type Test = TestValue;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/eslint" as const;
 
 const template: Partial<
   Record<
-    NonNullable<Ts>,
-    Partial<Record<NonNullable<Test>, Template<TypeFrmwk>>>
+    NonNullable<Ts> | "default",
+    Partial<Record<NonNullable<Test> | "default", Template<TypeFrmwk>>>
   >
 > = {
   none: {
@@ -145,7 +126,7 @@ const template: Partial<
   },
 } as const;
 
-const script = { name: "lint", script: "eslint ." } as const;
+const scripts = [{ name: "lint", script: "eslint ." }] as const;
 
 const pkgDeps = [
   { name: "@eslint/js", version: "^9", dev: true },

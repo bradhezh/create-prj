@@ -1,6 +1,6 @@
 import { exec as execAsync } from "node:child_process";
 import { promisify, format } from "node:util";
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { get } from "axios";
 import Json from "comment-json";
@@ -25,6 +25,7 @@ const command = {
   setPkgDeps: '%s pkg set "dependencies.%s"="%s"',
   setPkgDevDeps: '%s pkg set "devDependencies.%s"="%s"',
   setPkgBin: '%s pkg set "bin.%s"="%s"',
+  rmNodeLinker: "pnpm config --location project delete node-linker",
   tar: "tar -xvf %s",
 } as const;
 
@@ -99,23 +100,23 @@ export const getPkgScript = async (npm: NPM, name: string, cwd?: string) => {
 };
 
 type Script = { name: string; script?: string };
-export type Scripts<T extends string> = Partial<Record<T, readonly Script[]>>;
+export type Scripts<T extends string> = Partial<
+  Record<T | "default", readonly Script[]>
+>;
 
 export const setPkgScripts = async <K extends string, T extends Scripts<K>>(
   npm: NPM,
-  scripts: T & {
-    [K0 in keyof T]: K0 extends K ? readonly Script[] | undefined : never;
-  },
+  scripts: T & { [K0 in keyof T]: K0 extends K | "default" ? T[K0] : never },
   key: K,
   cwd?: string,
 ) => {
-  if (!scripts[key]) {
-    return false;
+  const scripts0 = scripts[key] ?? scripts.default;
+  if (!scripts0) {
+    return;
   }
-  for (const { name, script } of scripts[key]) {
+  for (const { name, script } of scripts0) {
     await setPkgScript(npm, name, script, cwd);
   }
-  return true;
 };
 
 export const setPkgDep = async (
@@ -137,26 +138,26 @@ export const setPkgDevDep = async (
 };
 
 type PkgDep = { name: string; version: string; dev?: boolean };
-export type PkgDeps<T extends string> = Partial<Record<T, readonly PkgDep[]>>;
+export type PkgDeps<T extends string> = Partial<
+  Record<T | "default", readonly PkgDep[]>
+>;
 
 export const setPkgDeps = async <K extends string, T extends PkgDeps<K>>(
   npm: NPM,
-  deps: T & {
-    [K0 in keyof T]: K0 extends K ? readonly PkgDep[] | undefined : never;
-  },
+  deps: T & { [K0 in keyof T]: K0 extends K | "default" ? T[K0] : never },
   key: K,
   cwd?: string,
 ) => {
-  if (!deps[key]) {
-    return false;
+  const deps0 = deps[key] ?? deps.default;
+  if (!deps0) {
+    return;
   }
-  for (const { name, version } of deps[key].filter((e) => !e.dev)) {
+  for (const { name, version } of deps0.filter((e) => !e.dev)) {
     await setPkgDep(npm, name, version, cwd);
   }
-  for (const { name, version } of deps[key].filter((e) => e.dev)) {
+  for (const { name, version } of deps0.filter((e) => e.dev)) {
     await setPkgDevDep(npm, name, version, cwd);
   }
-  return true;
 };
 
 export const setPkgBin = async (
@@ -187,42 +188,46 @@ export const createWkspace = async (pkgs: readonly string[]) => {
 };
 
 export const addPkgInWkspace = async (pkg: string) => {
-  const doc = Yaml.parse(await readFile(workspace, "utf8"));
+  const doc = Yaml.parse(await readFile(workspace, "utf8").catch(() => "{}"));
   void (doc.packages || (doc.packages = []));
   doc.packages.push(pkg);
   await writeFile(workspace, Yaml.stringify(doc));
 };
 
 export const addOnlyBuiltDeps = async (deps: readonly string[]) => {
-  const doc = Yaml.parse(await readFile(workspace, "utf8"));
+  const doc = Yaml.parse(await readFile(workspace, "utf8").catch(() => "{}"));
   void (doc.onlyBuiltDependencies || (doc.onlyBuiltDependencies = []));
   doc.onlyBuiltDependencies.push(...deps);
   await writeFile(workspace, Yaml.stringify(doc));
 };
 
-export type BuiltDeps<T extends string> = Partial<Record<T, readonly string[]>>;
+export const rmPnpmNodeLinker = async () => {
+  await exec(command.rmNodeLinker);
+};
+
+export type BuiltDeps<T extends string> = Partial<
+  Record<T | "default", readonly string[]>
+>;
 
 export const setWkspaceBuiltDeps = async <
   K extends string,
   T extends BuiltDeps<K>,
 >(
-  deps: T & {
-    [K0 in keyof T]: K0 extends K ? readonly string[] | undefined : never;
-  },
+  deps: T & { [K0 in keyof T]: K0 extends K | "default" ? T[K0] : never },
   key: K,
 ) => {
-  if (!deps[key]) {
-    return false;
+  const deps0 = deps[key] ?? deps.default;
+  if (!deps0) {
+    return;
   }
-  await addOnlyBuiltDeps(deps[key]);
-  return true;
+  await addOnlyBuiltDeps(deps0);
 };
 
 const tsconfig = "tsconfig.json" as const;
 
 export const setTsOptions = async (options: object, cwd?: string) => {
   const file = join(cwd ?? "", tsconfig);
-  const doc = Json.parse(await readFile(file, "utf8")) as any;
+  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
   void (doc.compilerOptions || (doc.compilerOptions = {}));
   doc.compilerOptions = { ...doc.compilerOptions, ...options };
   const text =
@@ -239,7 +244,7 @@ export const setPathAlias = async (
   cwd?: string,
 ) => {
   const file = join(cwd ?? "", tsconfig);
-  const doc = Json.parse(await readFile(file, "utf8")) as any;
+  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
   void (doc.compilerOptions || (doc.compilerOptions = {}));
   doc.compilerOptions.baseUrl = base;
   doc.compilerOptions.paths = pathAlias;
@@ -255,7 +260,7 @@ export const addPathAlias = async (
   cwd?: string,
 ) => {
   const file = join(cwd ?? "", tsconfig);
-  const doc = Json.parse(await readFile(file, "utf8")) as any;
+  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
   void (doc.compilerOptions || (doc.compilerOptions = {}));
   void (doc.compilerOptions.paths || (doc.compilerOptions.paths = {}));
   doc.compilerOptions.paths[name] = paths;
@@ -265,40 +270,42 @@ export const addPathAlias = async (
   await writeFile(file, text);
 };
 
-const srcPath = "%s/src/*" as const;
+const src = "src" as const;
 const pathAliasWithShared = { "@/*": [""], "@shared/*": ["shared/src/*"] };
 
 export const setPathAliasWithShared = async (cwd: string) => {
-  pathAliasWithShared["@/*"][0] = format(srcPath, cwd);
+  await access(join(cwd, src))
+    .then(() => (pathAliasWithShared["@/*"][0] = format(`%s/${src}/*`, cwd)))
+    .catch(() => (pathAliasWithShared["@/*"][0] = format("%s/*", cwd)));
   await setPathAlias("..", pathAliasWithShared, cwd);
 };
 
 type Tmplt = { name: string; path?: string };
-export type Template<T extends string> = Partial<Record<T, Tmplt>>;
+export type Template<T extends string> = Partial<Record<T | "default", Tmplt>>;
 
 export const installTmplt = async <K extends string, T extends Template<K>>(
   base: string,
-  template: T & { [K0 in keyof T]: K0 extends K ? Tmplt | undefined : never },
+  template: T & { [K0 in keyof T]: K0 extends K | "default" ? T[K0] : never },
   key: K,
   cwd?: string,
   tar?: boolean,
 ) => {
-  if (!template[key]) {
-    return false;
+  const tmplt = template[key] ?? template.default;
+  if (!tmplt) {
+    return;
   }
-  const file = join(cwd ?? "", template[key].name);
+  const file = join(cwd ?? "", tmplt.name);
   await writeFile(
     file,
     (
-      await get(`${base}${template[key].path ?? ""}`, {
+      await get(`${base}${tmplt.path ?? ""}`, {
         responseType: !tar ? "text" : "arraybuffer",
       })
     ).data,
   );
   if (!tar) {
-    return true;
+    return;
   }
-  await exec(format(command.tar, template[key].name), { cwd });
+  await exec(format(command.tar, tmplt.name), { cwd });
   await rm(file, { force: true });
-  return true;
 };
