@@ -14,7 +14,7 @@ const run = async (conf: Conf) => {
 
   const npm = conf.npm;
   const name = conf.node!.name ?? meta.plugin.type.node;
-  const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
+  const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
   const ts = conf.node!.typescript as Ts;
 
   log.info(format(message.pluginStart, `Typescript for "${name}"`));
@@ -43,27 +43,30 @@ const reinstall = async (npm: NPM, name: string, ts: Ts, cwd: string) => {
 
 regOption(
   {
-    name: meta.plugin.option.type.common.typescript,
+    name: meta.plugin.option.type.typescript,
     label: "Typescript for Node.js app",
     plugin: { run },
     values: [
       {
         name: value.typescript.nodec,
         label: "No decorator",
-        disables: [],
-        enables: [],
+        skips: [],
+        keeps: [],
+        requires: [],
       },
       {
         name: value.typescript.metadata,
         label: "Decorator with emitDecoratorMetadata",
-        disables: [],
-        enables: [],
+        skips: [],
+        keeps: [],
+        requires: [],
       },
       {
         name: meta.plugin.value.none,
         label: "None",
-        disables: [],
-        enables: [],
+        skips: [],
+        keeps: [],
+        requires: [],
       },
     ],
   },

@@ -1,14 +1,16 @@
+import { access } from "node:fs/promises";
+import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
 import { value, FrmwkValue, TsValue } from "./const";
 import {
   regValue,
-  getDisableTypesAndFrmwks,
+  typeFrmwksSkip,
   meta,
   NPM,
   Conf,
-  PluginType,
+  PrimeType,
 } from "@/registry";
 import {
   installTmplt,
@@ -28,21 +30,29 @@ const run = async (conf: Conf) => {
   const types0 = conf.monorepo?.types ?? [conf.type];
   const types = (
     types0.length <= 1 ? types0 : [...types0, meta.system.type.shared]
-  ) as PluginType[];
-  const shared = types0.length > 1 ? "withShared" : undefined;
+  ) as TargetType[];
+  const withShared = types0.length > 1 ? "withShared" : undefined;
+  const skips = typeFrmwksSkip(meta.plugin.option.test);
 
   for (const type of types) {
-    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
-    if (getDisableTypesAndFrmwks(meta.plugin.option.test).includes(typeFrmwk)) {
+    const typeFrmwk = (conf[type as PrimeType]?.framework ?? type) as TypeFrmwk;
+    if (skips.includes(typeFrmwk)) {
       continue;
     }
 
-    const name = conf[type]?.name ?? type;
-    const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
-    const ts = conf[type]?.typescript as Ts;
+    const name = conf[type as PrimeType]?.name ?? type;
+    const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
+    const ts =
+      type !== meta.system.type.shared
+        ? (conf[type]?.typescript as TsValue)
+        : (await access(join(meta.system.type.shared, "tsconfig.json"))
+              .then(() => true)
+              .catch(() => false))
+          ? value.typescript.nodec
+          : meta.plugin.value.none;
 
     log.info(format(message.forType, name));
-    await install(typeFrmwk, ts, shared, cwd);
+    await install(typeFrmwk, ts, withShared, cwd);
 
     log.info(message.setPkg);
     await setPkgScripts(npm, { default: scripts }, "default", cwd);
@@ -57,16 +67,16 @@ const run = async (conf: Conf) => {
 
 const install = async (
   typeFrmwk: TypeFrmwk,
-  ts: Ts,
-  shared: Shared,
+  ts: TsValue,
+  withShared: WithShared,
   cwd: string,
 ) => {
   if (typeFrmwk === value.framework.nest) {
-    await installTmplt(base, nestTmplt, shared ?? "default", cwd);
+    await installTmplt(base, nestTmplt, withShared ?? "default", cwd);
     await installTmplt(base, { nest: nestSrcTmplt }, "nest", cwd, true);
   } else {
     const tmplt = template[ts ?? "default"] ?? template.default!;
-    const tmplt0 = tmplt[shared ?? "default"] ?? tmplt.default!;
+    const tmplt0 = tmplt[withShared ?? "default"] ?? tmplt.default!;
     await installTmplt(base, tmplt0, typeFrmwk, cwd);
     await installTmplt(base, srcTmplt, ts ?? "default", cwd, true);
   }
@@ -74,9 +84,9 @@ const install = async (
 
 const jeSetPkgDeps = async (
   npm: NPM,
-  type: PluginType,
+  type: TargetType,
   typeFrmwk: TypeFrmwk,
-  ts: Ts,
+  ts: TsValue,
   cwd: string,
 ) => {
   await setPkgDeps(npm, { default: pkgDeps }, "default", cwd);
@@ -101,20 +111,18 @@ regValue(
     name: value.test.jest,
     label,
     plugin: { run },
-    disables: [],
-    enables: [],
+    skips: [],
+    keeps: [],
+    requires: [],
   },
   meta.plugin.option.test,
   undefined,
   0,
 );
 
-type TypeFrmwk =
-  | PluginType
-  | NonNullable<FrmwkValue>
-  | typeof meta.system.type.shared;
-type Ts = TsValue;
-type Shared = "withShared" | undefined;
+type TargetType = PrimeType | typeof meta.system.type.shared;
+type TypeFrmwk = TargetType | NonNullable<FrmwkValue>;
+type WithShared = "withShared" | undefined;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/jest" as const;
@@ -129,10 +137,10 @@ const nestTmplt = {
 
 const template: Partial<
   Record<
-    NonNullable<Ts> | "default",
+    NonNullable<TsValue> | "default",
     Partial<
       Record<
-        NonNullable<Shared> | "default",
+        NonNullable<WithShared> | "default",
         Template<Exclude<TypeFrmwk, "nest">>
       >
     >
@@ -153,7 +161,6 @@ const template: Partial<
         name: "jest.config.js",
         path: "/jest-pkg-with-shared-dec.config.js",
       },
-      shared: { name: "jest.config.js", path: "/jest-shared-dec.config.js" },
       default: {
         name: "jest.config.js",
         path: "/jest-with-shared-dec.config.js",

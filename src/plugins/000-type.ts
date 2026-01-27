@@ -6,7 +6,7 @@ import { format } from "node:util";
 import wrapAnsi from "wrap-ansi";
 
 import { value, FrmwkValue } from "./const";
-import { regType, meta, NPM, Conf, PluginType } from "@/registry";
+import { regType, meta, NPM, Conf, PrimeType } from "@/registry";
 import {
   installTmplt,
   setPkgName,
@@ -20,14 +20,14 @@ import {
 } from "@/command";
 import { message as msg } from "@/message";
 
-const run = (type: PluginType) => {
+const run = (type: PrimeType) => {
   return async (conf: Conf) => {
     const s = spinner();
     s.start();
 
     const npm = conf.npm;
     const name = conf[type]?.name ?? type;
-    const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
+    const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
     const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
     const shared = (conf.monorepo?.types.length ?? 0) > 1;
 
@@ -127,22 +127,24 @@ for (const { name, label, frameworks } of [
       {
         name: value.framework.express,
         label: "Express",
-        disables: [],
-        enables: [
+        skips: [],
+        keeps: [
           { option: meta.plugin.option.builder },
           { option: meta.plugin.option.test },
           { option: meta.plugin.option.lint },
         ],
+        requires: [],
       },
       {
         name: value.framework.nest,
         label: "NestJS",
-        disables: [],
-        enables: [
+        skips: [],
+        keeps: [
           { option: meta.plugin.option.builder },
           { option: meta.plugin.option.test },
           { option: meta.plugin.option.lint },
         ],
+        requires: [],
       },
     ],
   },
@@ -153,22 +155,24 @@ for (const { name, label, frameworks } of [
       {
         name: value.framework.react,
         label: "React (Vite)",
-        disables: [
+        skips: [
           { option: meta.plugin.option.builder },
           { option: meta.plugin.option.test },
           { option: meta.plugin.option.lint },
         ],
-        enables: [],
+        keeps: [],
+        requires: [],
       },
       {
         name: value.framework.next,
         label: "Next.js",
-        disables: [
+        skips: [
           { option: meta.plugin.option.builder },
           { option: meta.plugin.option.test },
           { option: meta.plugin.option.lint },
         ],
-        enables: [],
+        keeps: [],
+        requires: [],
       },
     ],
   },
@@ -179,12 +183,13 @@ for (const { name, label, frameworks } of [
       {
         name: value.framework.expo,
         label: "Expo",
-        disables: [
+        skips: [
           { option: meta.plugin.option.builder },
           { option: meta.plugin.option.test },
           { option: meta.plugin.option.lint },
         ],
-        enables: [],
+        keeps: [],
+        requires: [],
       },
     ],
   },
@@ -195,23 +200,19 @@ for (const { name, label, frameworks } of [
     plugin: { run: run(name) },
     options: [
       {
-        name: meta.plugin.option.type.common.name,
+        name: meta.plugin.option.type.name,
         label: `${label} name`,
         values: [],
       },
       {
-        name: meta.plugin.option.type[name].framework,
+        name: meta.plugin.option.type.framework,
         label: `${label} framework`,
-        values: frameworks.map((e) => ({
-          name: e.name,
-          label: e.label,
-          disables: e.disables,
-          enables: e.enables,
-        })),
+        values: frameworks,
       },
     ],
-    disables: [],
-    enables: [],
+    skips: [],
+    keeps: [],
+    requires: [],
   });
 }
 for (const { name, label } of [
@@ -225,21 +226,22 @@ for (const { name, label } of [
     plugin: { run: run(name) },
     options: [
       {
-        name: meta.plugin.option.type.common.name,
+        name: meta.plugin.option.type.name,
         label: `${label} name`,
         values: [],
       },
     ],
-    disables: [],
-    enables: [
+    skips: [],
+    keeps: [
       { option: meta.plugin.option.builder },
       { option: meta.plugin.option.test },
       { option: meta.plugin.option.lint },
     ],
+    requires: [],
   });
 }
 
-type TypeFrmwk = PluginType | NonNullable<FrmwkValue>;
+type TypeFrmwk = PrimeType | NonNullable<FrmwkValue>;
 type Spinner = ReturnType<typeof spinner>;
 
 const base =

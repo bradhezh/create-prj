@@ -9,12 +9,9 @@ regOption(
       {
         name: meta.plugin.value.none,
         label: "None",
-        disables: [
-          { option: option.gitVis },
-          { option: meta.plugin.option.cicd },
-          { option: meta.plugin.option.deploy },
-        ],
-        enables: [],
+        skips: [{ option: option.gitVis }, { option: meta.plugin.option.cicd }],
+        keeps: [],
+        requires: [],
       },
     ],
   },
@@ -25,12 +22,19 @@ regOption(
     name: option.gitVis,
     label: "Git repository visibility",
     values: [
-      { name: value.gitVis.public, label: "Public", disables: [], enables: [] },
+      {
+        name: value.gitVis.public,
+        label: "Public",
+        skips: [],
+        keeps: [],
+        requires: [],
+      },
       {
         name: value.gitVis.private,
         label: "Private",
-        disables: [],
-        enables: [],
+        skips: [],
+        keeps: [],
+        requires: [],
       },
     ],
   },

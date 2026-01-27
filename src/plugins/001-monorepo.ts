@@ -1,7 +1,7 @@
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
-import { regType, meta, NPM, Conf, PluginType } from "@/registry";
+import { regType, meta, NPM, Conf, PrimeType } from "@/registry";
 import {
   installTmplt,
   setPkgName,
@@ -17,7 +17,7 @@ const run = async (conf: Conf) => {
   log.info(format(message.pluginStart, label));
 
   const npm = conf.npm;
-  const types = conf.monorepo!.types as PluginType[];
+  const types = conf.monorepo!.types as PrimeType[];
   const defType = types[0];
   const defTypeName = conf[defType]?.name ?? defType;
   const monoName = conf.monorepo!.name;
@@ -58,8 +58,8 @@ const run = async (conf: Conf) => {
 
 const monoSetPkgScripts = async (
   npm: NPM,
-  types: PluginType[],
-  defType: PluginType,
+  types: PrimeType[],
+  defType: PrimeType,
   defTypeName: string,
   beName: string,
   feName: string,
@@ -87,7 +87,7 @@ const monoSetPkgScripts = async (
 
 const setBuild = async (
   npm: NPM,
-  types: PluginType[],
+  types: PrimeType[],
   beName: string,
   feName: string,
   mName: string,
@@ -118,7 +118,7 @@ const setBuild = async (
 
 const setDev = async (
   npm: NPM,
-  types: PluginType[],
+  types: PrimeType[],
   feName: string,
   mName: string,
   defName?: string,
@@ -159,8 +159,8 @@ const setStart = async (npm: NPM, defName?: string, noStart?: boolean) => {
 
 const createShared = async (
   npm: NPM,
-  types: PluginType[],
-  jsTypes: PluginType[],
+  types: PrimeType[],
+  jsTypes: PrimeType[],
 ) => {
   if (types.filter((e) => !jsTypes.includes(e)).length > 1) {
     await installTmplt(
@@ -185,12 +185,13 @@ const createShared = async (
 const label = "Monorepo" as const;
 
 regType({
-  name: meta.system.type.monorepo,
+  name: meta.plugin.type.monorepo,
   label,
   plugin: { run },
   options: [],
-  disables: [],
-  enables: [],
+  skips: [],
+  keeps: [],
+  requires: [],
 });
 
 const base =

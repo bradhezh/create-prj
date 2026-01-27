@@ -5,11 +5,11 @@ import { value, FrmwkValue, TsValue } from "./const";
 import {
   useOption,
   regValue,
-  getDisableTypesAndFrmwks,
+  typeFrmwksSkip,
   meta,
   NPM,
   Conf,
-  PluginType,
+  PrimeType,
 } from "@/registry";
 import { installTmplt, setPkgScripts, setPkgDeps, Template } from "@/command";
 import { message as msg } from "@/message";
@@ -20,19 +20,18 @@ const run = async (conf: Conf) => {
   log.info(format(message.pluginStart, label));
 
   const npm = conf.npm;
-  const types = (conf.monorepo?.types ?? [conf.type]) as PluginType[];
+  const types = (conf.monorepo?.types ?? [conf.type]) as PrimeType[];
+  const skips = typeFrmwksSkip(meta.plugin.option.builder);
 
   for (const type of types) {
     const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
-    if (
-      getDisableTypesAndFrmwks(meta.plugin.option.builder).includes(typeFrmwk)
-    ) {
+    if (skips.includes(typeFrmwk)) {
       continue;
     }
 
     const name = conf[type]?.name ?? type;
-    const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
-    const ts = conf[type]?.typescript as Ts;
+    const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
+    const ts = conf[type]?.typescript as TsValue;
 
     log.info(format(message.forType, name));
     await install(typeFrmwk, ts, cwd);
@@ -46,7 +45,7 @@ const run = async (conf: Conf) => {
   s.stop();
 };
 
-const install = async (typeFrmwk: TypeFrmwk, ts: Ts, cwd: string) => {
+const install = async (typeFrmwk: TypeFrmwk, ts: TsValue, cwd: string) => {
   if (typeFrmwk === value.framework.nest) {
     await installTmplt(base, { nest: nestTmplt }, "nest", cwd);
   } else {
@@ -55,7 +54,7 @@ const install = async (typeFrmwk: TypeFrmwk, ts: Ts, cwd: string) => {
   }
 };
 
-const rsSetPkgDeps = async (npm: NPM, ts: Ts, cwd: string) => {
+const rsSetPkgDeps = async (npm: NPM, ts: TsValue, cwd: string) => {
   await setPkgDeps(npm, { default: pkgDeps }, "default", cwd);
   if (ts !== meta.plugin.value.none) {
     await setPkgDeps(npm, { default: tsPkgDeps }, "default", cwd);
@@ -74,14 +73,14 @@ regValue(
     name: value.builder.rspack,
     label,
     plugin: { run },
-    disables: [],
-    enables: [],
+    skips: [],
+    keeps: [],
+    requires: [],
   },
   meta.plugin.option.builder,
 );
 
-type TypeFrmwk = PluginType | NonNullable<FrmwkValue>;
-type Ts = TsValue;
+type TypeFrmwk = PrimeType | NonNullable<FrmwkValue>;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/rspack" as const;
@@ -92,7 +91,7 @@ const nestTmplt = {
 } as const;
 
 const template: Partial<
-  Record<NonNullable<Ts> | "default", Template<Exclude<TypeFrmwk, "nest">>>
+  Record<NonNullable<TsValue> | "default", Template<Exclude<TypeFrmwk, "nest">>>
 > = {
   none: {
     cli: { name: "rspack.config.js", path: "/rspack-cli.config.js" },

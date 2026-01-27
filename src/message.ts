@@ -6,14 +6,14 @@ export const message = {
     types: { label: "Types in monorepo" },
   },
   optional: {
+    hint: "Optional options: %s",
     options: {
-      hint: "Optional options: %s",
-      label: "Configure them one by one, or choose none of them?",
+      label:
+        "Configure them one by one, or choose none of them (except required ones)?",
     },
     defaults: {
-      hint: "Defaults for optional options: %s",
       label:
-        "Accept defaults, or configure them one by one, or choose none of them?",
+        "Accept defaults, or configure them one by one, or choose none of them (except required ones)?",
     },
   },
   sysType: "Type cannot be registered with a system name.",

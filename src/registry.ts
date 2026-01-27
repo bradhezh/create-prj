@@ -3,35 +3,32 @@ import { message } from "@/message";
 export const meta = {
   plugin: {
     type: {
-      node: "node",
-      cli: "cli",
-      lib: "lib",
       backend: "backend",
       frontend: "frontend",
       mobile: "mobile",
+      node: "node",
+      cli: "cli",
+      lib: "lib",
+      monorepo: "monorepo",
     },
     option: {
       type: {
-        common: { name: "name", typescript: "typescript" },
-        backend: { framework: "framework" },
-        frontend: { framework: "framework" },
-        mobile: { framework: "framework" },
+        name: "name",
+        framework: "framework",
+        typescript: "typescript",
+        deployment: "deployment",
       },
       builder: "builder",
       test: "test",
       lint: "lint",
-      orm: "orm",
       git: "git",
       cicd: "cicd",
-      deploy: "deploy",
+      orm: "orm",
     },
     value: { none: "none" },
   },
   system: {
-    type: {
-      monorepo: "monorepo",
-      shared: "shared",
-    },
+    type: { shared: "shared" },
     option: {
       category: {
         type: "type",
@@ -42,14 +39,12 @@ export const meta = {
   },
 } as const;
 
-const sysConfKey = { npm: "npm", type: "type", monorepo: "monorepo" } as const;
+const sysConfKey = { npm: "npm", type: "type" } as const;
 
-type TypeOptionObj = typeof meta.plugin.option.type;
+type TypeOption = keyof typeof meta.plugin.option.type;
 type NonTypeOption = Exclude<keyof typeof meta.plugin.option, "type">;
-type CommonTypeOption = keyof TypeOptionObj["common"];
-type TypeWithOption = Exclude<keyof TypeOptionObj, "common">;
 export type PluginType = keyof typeof meta.plugin.type;
-export type ConfType = PluginType | "monorepo";
+export type PrimeType = Exclude<PluginType, "monorepo">;
 export enum NPM {
   npm = "npm",
   pnpm = "pnpm",
@@ -58,15 +53,15 @@ export type Conf = {
   npm: NPM;
   type: string;
   monorepo?: { name: string; types: string[] };
-} & {
-  [K in PluginType]?: { [K0 in CommonTypeOption]?: string } & {
-    -readonly [K0 in keyof TypeOptionObj[K extends TypeWithOption
-      ? K
-      : never]]?: string;
-  } & Partial<Record<string, string | string[]>>;
-} & {
-  [K in NonTypeOption]?: string;
-} & Partial<Record<string, string | string[]>>;
+} & Partial<
+  Record<
+    PrimeType,
+    Partial<Record<TypeOption, string>> &
+      Partial<Record<string, string | string[]>>
+  >
+> &
+  Partial<Record<NonTypeOption, string>> &
+  Partial<Record<string, string | string[]>>;
 
 export type Category = keyof typeof meta.system.option.category;
 
@@ -77,14 +72,9 @@ export type Value = {
   name: string;
   label: string;
   plugin?: IPlugin;
-  disables: {
-    type?: string;
-    option: string;
-  }[];
-  enables: {
-    type?: string;
-    option: string;
-  }[];
+  skips: { option: string; type?: string }[];
+  keeps: { option: string; type?: string }[];
+  requires: { option: string; type?: string }[];
 };
 export type Option = {
   name: string;
@@ -95,6 +85,7 @@ export type Option = {
   optional?: boolean;
   initial?: string;
   disabled?: boolean;
+  required?: boolean;
 };
 export type Type = Value & { options: Option[] };
 export const options: {
@@ -104,10 +95,7 @@ export const options: {
 } = { type: [], compulsory: [], optional: [] };
 
 export const regType = (type: Type, index?: number) => {
-  if (
-    type.name !== meta.system.type.monorepo &&
-    Object.keys(meta.system.type).includes(type.name)
-  ) {
+  if (Object.keys(meta.system.type).includes(type.name)) {
     throw new Error(message.sysType);
   }
   if (options.type.find((e) => e.name === type.name)) {
@@ -121,25 +109,30 @@ export const regType = (type: Type, index?: number) => {
 };
 
 export const useType = (name: string, label: string, index?: number) => {
-  if (
-    name !== meta.system.type.monorepo &&
-    Object.keys(meta.system.type).includes(name)
-  ) {
+  if (Object.keys(meta.system.type).includes(name)) {
     throw new Error(message.sysType);
   }
   if (options.type.find((e) => e.name === name)) {
     return;
   }
   if (index === undefined) {
-    options.type.push({ name, label, options: [], disables: [], enables: [] });
+    options.type.push({
+      name,
+      label,
+      options: [],
+      skips: [],
+      keeps: [],
+      requires: [],
+    });
     return;
   }
   options.type.splice(index, 0, {
     name,
     label,
     options: [],
-    disables: [],
-    enables: [],
+    skips: [],
+    keeps: [],
+    requires: [],
   });
 };
 
@@ -224,15 +217,11 @@ export const regValue = (
   opt.values.splice(index, 0, value);
 };
 
-export const enableOptions = (conf: Conf, value: Value) => {
-  for (const { option, type } of value.enables) {
-    const opt = getOption(option, type);
-    opt.disabled = false;
-  }
-  for (const { option, type } of value.disables) {
+export const adjustOptions = (conf: Conf, value: Value) => {
+  for (const { option, type } of value.skips) {
     if (
-      enableFoundInTypes(conf, option, type) ||
-      enableFoundInOptions(conf, option, type, [
+      keptOrRequiredInTypes(conf, option, type) ||
+      keptOrRequiredInOptions(conf, option, type, [
         ...options.compulsory,
         ...options.optional,
       ])
@@ -242,26 +231,29 @@ export const enableOptions = (conf: Conf, value: Value) => {
     const opt = getOption(option, type);
     opt.disabled = true;
   }
+  for (const { option, type } of value.keeps) {
+    const opt = getOption(option, type);
+    opt.disabled = false;
+  }
+  for (const { option, type } of value.requires) {
+    const opt = getOption(option, type);
+    opt.disabled = false;
+    opt.required = true;
+  }
 };
 
-export const getDisableTypesAndFrmwks = (option: string) => {
+export const typeFrmwksSkip = (option: string) => {
   return [
     ...options.type
-      .filter((type) =>
-        type.disables.find((e) => e.option === option && !e.type),
-      )
+      .filter((type) => type.skips.find((e) => e.option === option && !e.type))
       .map((type) => type.name),
     ...options.type
-      .map((type) => type.options.map((opt) => ({ type: type.name, opt })))
+      .map((type) => type.options)
       .flat()
-      .filter(
-        ({ type, opt }) =>
-          opt.name ===
-          meta.plugin.option.type[type as TypeWithOption]?.framework,
-      )
-      .map(({ type: _t, opt }) => opt.values)
+      .filter((opt) => opt.name === meta.plugin.option.type.framework)
+      .map((opt) => opt.values)
       .flat()
-      .filter((v) => v.disables.find((e) => e.option === option && !e.type))
+      .filter((v) => v.skips.find((e) => e.option === option && !e.type))
       .map((v) => v.name),
   ];
 };
@@ -284,6 +276,7 @@ const getOptions = (category: Category, type?: string, option?: string) => {
     throw new Error(message.sysConfKey);
   }
   if (
+    options.type.find((e) => e.name === option) ||
     (category === meta.system.option.category.compulsory &&
       options.optional.find((e) => e.name === option)) ||
     (category === meta.system.option.category.optional &&
@@ -312,20 +305,22 @@ const getOption = (name: string, type?: string) => {
   return option;
 };
 
-const enableFoundInTypes = (conf: Conf, option: string, type?: string) => {
+const keptOrRequiredInTypes = (conf: Conf, option: string, type?: string) => {
   const types = [conf.type, ...(conf.monorepo?.types ?? [])];
   const types0 = options.type.filter((type0) => types.includes(type0.name));
   return (
-    types0.find((type0) =>
-      type0.enables.find((e) => e.option === option && e.type === type),
+    types0.find(
+      (type0) =>
+        type0.keeps.find((e) => e.option === option && e.type === type) ||
+        type0.requires.find((e) => e.option === option && e.type === type),
     ) ||
     types0.find((type0) =>
-      enableFoundInOptions(conf, option, type, type0.options, type0.name),
+      keptOrRequiredInOptions(conf, option, type, type0.options, type0.name),
     )
   );
 };
 
-const enableFoundInOptions = (
+const keptOrRequiredInOptions = (
   conf: Conf,
   option: string,
   type: string | undefined,
@@ -336,11 +331,14 @@ const enableFoundInOptions = (
   if (!optConf || typeof optConf !== "object" || Array.isArray(optConf)) {
     return false;
   }
-  return opts.find(
-    (opt) =>
+  return opts.find((opt) => {
+    const value =
       opt.name in optConf &&
-      opt.values
-        .find((v) => v.name === optConf[opt.name])
-        ?.enables.find((e) => e.option === option && e.type === type),
-  );
+      opt.values.find((v) => v.name === optConf[opt.name]);
+    return (
+      value &&
+      (value.keeps.find((e) => e.option === option && e.type === type) ||
+        value.requires.find((e) => e.option === option && e.type === type))
+    );
+  });
 };

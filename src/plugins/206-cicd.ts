@@ -8,8 +8,9 @@ regOption(
       {
         name: meta.plugin.value.none,
         label: "None",
-        disables: [{ option: meta.plugin.option.deploy }],
-        enables: [],
+        skips: [],
+        keeps: [],
+        requires: [],
       },
     ],
   },

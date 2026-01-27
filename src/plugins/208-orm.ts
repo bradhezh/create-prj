@@ -8,8 +8,9 @@ regOption(
       {
         name: meta.plugin.value.none,
         label: "None",
-        disables: [],
-        enables: [],
+        skips: [],
+        keeps: [],
+        requires: [],
       },
     ],
   },

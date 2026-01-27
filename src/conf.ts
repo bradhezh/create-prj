@@ -4,7 +4,7 @@ import { format } from "node:util";
 import wrapAnsi from "wrap-ansi";
 
 import {
-  enableOptions,
+  adjustOptions,
   options,
   meta,
   NPM,
@@ -13,7 +13,7 @@ import {
   Option,
   Value,
   Category,
-  PluginType,
+  PrimeType,
 } from "@/registry";
 import { message } from "@/message";
 
@@ -45,11 +45,11 @@ const init = async () => {
     throw new Error(message.pmUnsupported);
   }
   const { type } = await typePrompt();
-  if (type.name === meta.system.type.monorepo && npm !== NPM.pnpm) {
+  if (type.name === meta.plugin.type.monorepo && npm !== NPM.pnpm) {
     throw new Error(message.pnpmRequired);
   }
   const conf = { npm, type: type.name };
-  enableOptions(conf, type);
+  adjustOptions(conf, type);
   void (type.plugin && plugins.type.push(type.plugin));
   return conf;
 };
@@ -57,18 +57,18 @@ const init = async () => {
 const confTypes = async (conf: Conf) => {
   const types: string[] = [];
   let monoLabel;
-  if (conf.type !== meta.system.type.monorepo) {
+  if (conf.type !== meta.plugin.type.monorepo) {
     types.push(conf.type);
   } else {
     const { name, types: types0 } = await monoPrompt();
     conf.monorepo = { name, types: types0.map((e) => e.name) };
     for (const type of types0) {
-      enableOptions(conf, type);
+      adjustOptions(conf, type);
       void (type.plugin && plugins.type.push(type.plugin));
     }
     types.push(...conf.monorepo.types);
     const monorepo = options.type.find(
-      (e) => e.name === meta.system.type.monorepo,
+      (e) => e.name === meta.plugin.type.monorepo,
     )!;
     monoLabel = monorepo.label;
     await confOptions(
@@ -81,7 +81,7 @@ const confTypes = async (conf: Conf) => {
   }
 
   for (const type of types) {
-    conf[type as PluginType] = {};
+    conf[type as PrimeType] = {};
     const type0 = options.type.find((e) => e.name === type)!;
     await confOptions(
       conf,
@@ -139,14 +139,14 @@ const setOptionValues = (
   if (!option.multiple) {
     const value = answer[option.name] as Value;
     optConf[option.name] = value.name;
-    enableOptions(conf, value);
+    adjustOptions(conf, value);
     void (value.plugin && plugins.value.push(value.plugin));
     return;
   }
   const values = answer[option.name] as Value[];
   optConf[option.name] = values.map((e) => e.name);
   for (const value of values) {
-    enableOptions(conf, value);
+    adjustOptions(conf, value);
     void (value.plugin && plugins.value.push(value.plugin));
   }
 };
@@ -162,29 +162,31 @@ const confOptional = async (conf: Conf) => {
   if (!opts.length) {
     return;
   }
-  const defOpts = opts.filter((e) => e.values.length);
-  hintDefOpts(opts, defOpts);
+  hintOptional(opts);
+  const defOpts = opts.filter(
+    (e) => e.values.length && e.values[0].name !== meta.plugin.value.none,
+  );
   const { optional: optl } = await optionalPrompt(defOpts);
-  if (optl === optional.none.value) {
-    return;
-  }
   if (optl === optional.manual.value) {
-    await confOptions(
-      conf,
-      options.optional,
-      meta.system.option.category.optional,
-    );
+    await confOptions(conf, opts, meta.system.option.category.optional);
     return;
   }
-  if (optl !== optional.default.value) {
-    return;
+  if (optl === optional.default.value) {
+    for (const opt of defOpts) {
+      void (opt.plugin && plugins.option.optional.push(opt.plugin));
+      const value = opt.values[0];
+      conf[opt.name] = !opt.multiple ? value.name : [value.name];
+      void (value.plugin && plugins.value.push(value.plugin));
+    }
   }
-  for (const opt of defOpts) {
-    void (opt.plugin && plugins.option.optional.push(opt.plugin));
-    const value = opt.values[0];
-    conf[opt.name] = !opt.multiple ? value.name : [value.name];
-    void (value.plugin && plugins.value.push(value.plugin));
-  }
+  await confOptions(
+    conf,
+    (optl !== optional.default.value
+      ? opts
+      : opts.filter((e) => !defOpts.find((e0) => e0.name === e.name))
+    ).filter((e) => e.required),
+    meta.system.option.category.optional,
+  );
 };
 
 const typePrompt = () => {
@@ -213,7 +215,7 @@ const monoPrompt = () => {
         multiselect({
           message: message.monorepo.types.label,
           options: options.type
-            .filter((e) => e.name !== meta.system.type.monorepo)
+            .filter((e) => e.name !== meta.plugin.type.monorepo)
             .map((e) => ({ value: e, label: e.label })),
         }),
     },
@@ -235,7 +237,7 @@ const optionPromptArg = (
     iniName:
       category !== meta.system.option.category.type
         ? ""
-        : conf.type === meta.system.type.monorepo
+        : conf.type === meta.plugin.type.monorepo
           ? type!
           : basename(process.cwd()),
   };
@@ -253,9 +255,7 @@ const optionPrompt = (
               message: `${label}${option.label}`,
               initialValue:
                 option.initial ??
-                (option.name !== meta.plugin.option.type.common.name
-                  ? ""
-                  : iniName),
+                (option.name !== meta.plugin.option.type.name ? "" : iniName),
               validate: option.optional
                 ? undefined
                 : (value?: string) => (value ? undefined : message.validate),
@@ -263,7 +263,12 @@ const optionPrompt = (
           : !option.multiple
             ? select({
                 message: `${label}${option.label}`,
-                options: option.values.map((e) => ({
+                options: (!option.required
+                  ? option.values
+                  : option.values.filter(
+                      (e) => e.name !== meta.plugin.value.none,
+                    )
+                ).map((e) => ({
                   value: e,
                   label: e.label,
                 })),
@@ -306,24 +311,27 @@ const optionalPrompt = (defOpts: Option[]) => {
   );
 };
 
-const hintDefOpts = (opts: Option[], defOpts: Option[]) => {
-  if (!defOpts.length) {
-    log.info(
-      wrapAnsi(
-        format(
-          message.optional.options.hint,
-          opts.map((e) => e.label).join(", "),
-        ),
-        message.noteWidth,
-      ),
-    );
-    return;
-  }
+const hintOptional = (opts: Option[]) => {
   log.info(
     wrapAnsi(
       format(
-        message.optional.defaults.hint,
-        defOpts.map((e) => `${e.label}: ${e.values[0].label}`).join(", "),
+        message.optional.hint,
+        opts
+          .map((e) => {
+            const def =
+              e.values.length &&
+              e.values[0].name !== meta.plugin.value.none &&
+              e.values[0].label;
+            const desc = !e.required
+              ? !def
+                ? ""
+                : `(${def})`
+              : !def
+                ? "(Required)"
+                : `(${def}, Required)`;
+            return `${e.label}${desc}`;
+          })
+          .join(", "),
       ),
       message.noteWidth,
     ),

@@ -1,14 +1,16 @@
+import { access } from "node:fs/promises";
+import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
 import { value, FrmwkValue, TsValue, TestValue } from "./const";
 import {
   regValue,
-  getDisableTypesAndFrmwks,
+  typeFrmwksSkip,
   meta,
   NPM,
   Conf,
-  PluginType,
+  PrimeType,
 } from "@/registry";
 import { installTmplt, setPkgScripts, setPkgDeps, Template } from "@/command";
 import { message as msg } from "@/message";
@@ -22,18 +24,26 @@ const run = async (conf: Conf) => {
   const types0 = conf.monorepo?.types ?? [conf.type];
   const types = (
     types0.length <= 1 ? types0 : [...types0, meta.system.type.shared]
-  ) as PluginType[];
+  ) as TargetType[];
+  const skips = typeFrmwksSkip(meta.plugin.option.lint);
 
   for (const type of types) {
-    const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
-    if (getDisableTypesAndFrmwks(meta.plugin.option.lint).includes(typeFrmwk)) {
+    const typeFrmwk = (conf[type as PrimeType]?.framework ?? type) as TypeFrmwk;
+    if (skips.includes(typeFrmwk)) {
       continue;
     }
 
-    const name = conf[type]?.name ?? type;
-    const cwd = conf.type !== meta.system.type.monorepo ? "." : name;
-    const ts = conf[type]?.typescript as Ts;
-    const test = conf.test as Test;
+    const name = conf[type as PrimeType]?.name ?? type;
+    const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
+    const ts =
+      type !== meta.system.type.shared
+        ? (conf[type]?.typescript as TsValue)
+        : (await access(join(meta.system.type.shared, "tsconfig.json"))
+              .then(() => true)
+              .catch(() => false))
+          ? value.typescript.nodec
+          : meta.plugin.value.none;
+    const test = conf.test as TestValue;
 
     log.info(format(message.forType, name));
     await install(typeFrmwk, ts, test, cwd);
@@ -49,8 +59,8 @@ const run = async (conf: Conf) => {
 
 const install = async (
   typeFrmwk: TypeFrmwk,
-  ts: Ts,
-  test: Test,
+  ts: TsValue,
+  test: TestValue,
   cwd: string,
 ) => {
   const tmplt = template[ts ?? "default"] ?? template.default!;
@@ -58,7 +68,7 @@ const install = async (
   await installTmplt(base, tmplt0, typeFrmwk, cwd);
 };
 
-const elSetPkgDeps = async (npm: NPM, ts: Ts, cwd: string) => {
+const elSetPkgDeps = async (npm: NPM, ts: TsValue, cwd: string) => {
   await setPkgDeps(npm, { default: pkgDeps }, "default", cwd);
   if (ts !== meta.plugin.value.none) {
     await setPkgDeps(npm, { default: tsPkgDeps }, "default", cwd);
@@ -72,28 +82,25 @@ regValue(
     name: value.lint.eslint,
     label,
     plugin: { run },
-    disables: [],
-    enables: [],
+    skips: [],
+    keeps: [],
+    requires: [],
   },
   meta.plugin.option.lint,
   undefined,
   0,
 );
 
-type TypeFrmwk =
-  | PluginType
-  | NonNullable<FrmwkValue>
-  | typeof meta.system.type.shared;
-type Ts = TsValue;
-type Test = TestValue;
+type TargetType = PrimeType | typeof meta.system.type.shared;
+type TypeFrmwk = TargetType | NonNullable<FrmwkValue>;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/eslint" as const;
 
 const template: Partial<
   Record<
-    NonNullable<Ts> | "default",
-    Partial<Record<NonNullable<Test> | "default", Template<TypeFrmwk>>>
+    NonNullable<TsValue> | "default",
+    Partial<Record<NonNullable<TestValue> | "default", Template<TypeFrmwk>>>
   >
 > = {
   none: {

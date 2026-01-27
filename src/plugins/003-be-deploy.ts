@@ -2,8 +2,8 @@ import { regOption, meta } from "@/registry";
 
 regOption(
   {
-    name: meta.plugin.option.test,
-    label: "Test framework",
+    name: meta.plugin.option.type.deployment,
+    label: "Backend deployment",
     values: [
       {
         name: meta.plugin.value.none,
@@ -14,5 +14,6 @@ regOption(
       },
     ],
   },
-  meta.system.option.category.optional,
+  meta.system.option.category.type,
+  meta.plugin.type.backend,
 );

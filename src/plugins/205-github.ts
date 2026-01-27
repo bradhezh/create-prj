@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 
 import { option, value, GitVisValue } from "./const";
-import { regValue, meta, Conf, ConfType } from "@/registry";
+import { regValue, meta, Conf, PluginType } from "@/registry";
 import { installTmplt } from "@/command";
 import { message as msg } from "@/message";
 
@@ -15,7 +15,7 @@ const run = async (conf: Conf) => {
   log.info(format(message.pluginStart, label));
 
   if (await init()) {
-    const name = conf[conf.type as ConfType]?.name ?? conf.type;
+    const name = conf[conf.type as PluginType]?.name ?? conf.type;
     const vis = (conf[option.gitVis] ?? value.gitVis.private) as GitVis;
 
     const user = await checkAuth(vis, s);
@@ -149,7 +149,14 @@ const getScopes = async () => {
 const label = "GitHub" as const;
 
 regValue(
-  { name: value.git.github, label, plugin: { run }, disables: [], enables: [] },
+  {
+    name: value.git.github,
+    label,
+    plugin: { run },
+    skips: [],
+    keeps: [],
+    requires: [],
+  },
   meta.plugin.option.git,
   undefined,
   0,

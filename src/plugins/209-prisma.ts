@@ -19,7 +19,14 @@ const run = async (_conf: Conf) => {
 const label = "Prisma" as const;
 
 regValue(
-  { name: value.orm.prisma, label, plugin: { run }, disables: [], enables: [] },
+  {
+    name: value.orm.prisma,
+    label,
+    plugin: { run },
+    skips: [],
+    keeps: [],
+    requires: [],
+  },
   meta.plugin.option.orm,
   undefined,
   0,
