@@ -105,7 +105,7 @@ export const getPkgScript = async (name: string, npm: NPM, cwd?: string) => {
 };
 
 type Script = { name: string; script?: string };
-export const defKey = "default" as const;
+export const defKey = "def" as const;
 export type Scripts<T extends string> = Partial<
   Record<T | typeof defKey, readonly Script[]>
 >;
@@ -118,7 +118,7 @@ export const setPkgScripts = async <K extends string, T extends Scripts<K>>(
   npm: NPM,
   cwd?: string,
 ) => {
-  const scripts0 = scripts[key ?? defKey] ?? scripts.default;
+  const scripts0 = scripts[key ?? defKey] ?? scripts.def;
   if (!scripts0) {
     return;
   }
@@ -156,7 +156,7 @@ export const setPkgDeps = async <K extends string, T extends PkgDeps<K>>(
   npm: NPM,
   cwd?: string,
 ) => {
-  const deps0 = deps[key ?? defKey] ?? deps.default;
+  const deps0 = deps[key ?? defKey] ?? deps.def;
   if (!deps0) {
     return;
   }
@@ -197,7 +197,7 @@ export const createWkspace = async (pkgs: readonly string[]) => {
 
 export const addPkgInWkspace = async (pkg: string) => {
   const doc = Yaml.parse(await readFile(workspace, "utf8").catch(() => "{}"));
-  if (typeof doc !== "object") {
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     throw new Error(format(message.invFormat, workspace));
   }
   void (doc.packages || (doc.packages = []));
@@ -207,7 +207,7 @@ export const addPkgInWkspace = async (pkg: string) => {
 
 export const addOnlyBuiltDeps = async (deps: readonly string[]) => {
   const doc = Yaml.parse(await readFile(workspace, "utf8").catch(() => "{}"));
-  if (typeof doc !== "object") {
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     throw new Error(format(message.invFormat, workspace));
   }
   void (doc.onlyBuiltDependencies || (doc.onlyBuiltDependencies = []));
@@ -230,7 +230,7 @@ export const setWkspaceBuiltDeps = async <
   deps: T & { [K0 in keyof T]: K0 extends K | typeof defKey ? T[K0] : never },
   key?: K,
 ) => {
-  const deps0 = deps[key ?? defKey] ?? deps.default;
+  const deps0 = deps[key ?? defKey] ?? deps.def;
   if (!deps0) {
     return;
   }
@@ -241,11 +241,20 @@ const tsconfig = "tsconfig.json" as const;
 
 export const setTsOptions = async (options: object, cwd?: string) => {
   const file = join(cwd ?? "", tsconfig);
-  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
-  if (typeof doc !== "object") {
+  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}"));
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     throw new Error(format(message.invFormat, file));
   }
-  void (doc.compilerOptions || (doc.compilerOptions = {}));
+  void (
+    doc.compilerOptions || (doc.compilerOptions = {} as Json.CommentObject)
+  );
+  if (
+    typeof doc.compilerOptions !== "object" ||
+    doc.compilerOptions === null ||
+    Array.isArray(doc.compilerOptions)
+  ) {
+    throw new Error(format(message.invFormat, file));
+  }
   doc.compilerOptions = { ...doc.compilerOptions, ...options };
   const text =
     Json.stringify(doc, null, 2).replace(/\[\s+"([^"]+)"\s+\]/g, '["$1"]') +
@@ -261,13 +270,22 @@ export const setPathAlias = async (
   cwd?: string,
 ) => {
   const file = join(cwd ?? "", tsconfig);
-  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
-  if (typeof doc !== "object") {
+  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}"));
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     throw new Error(format(message.invFormat, file));
   }
-  void (doc.compilerOptions || (doc.compilerOptions = {}));
+  void (
+    doc.compilerOptions || (doc.compilerOptions = {} as Json.CommentObject)
+  );
+  if (
+    typeof doc.compilerOptions !== "object" ||
+    doc.compilerOptions === null ||
+    Array.isArray(doc.compilerOptions)
+  ) {
+    throw new Error(format(message.invFormat, file));
+  }
   doc.compilerOptions.baseUrl = base;
-  doc.compilerOptions.paths = pathAlias;
+  doc.compilerOptions.paths = pathAlias as Json.CommentObject;
   const text =
     Json.stringify(doc, null, 2).replace(/\[\s+"([^"]+)"\s+\]/g, '["$1"]') +
     "\n";
@@ -280,13 +298,32 @@ export const addPathAlias = async (
   cwd?: string,
 ) => {
   const file = join(cwd ?? "", tsconfig);
-  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
-  if (typeof doc !== "object") {
+  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}"));
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
     throw new Error(format(message.invFormat, file));
   }
-  void (doc.compilerOptions || (doc.compilerOptions = {}));
-  void (doc.compilerOptions.paths || (doc.compilerOptions.paths = {}));
-  doc.compilerOptions.paths[name] = paths;
+  void (
+    doc.compilerOptions || (doc.compilerOptions = {} as Json.CommentObject)
+  );
+  if (
+    typeof doc.compilerOptions !== "object" ||
+    doc.compilerOptions === null ||
+    Array.isArray(doc.compilerOptions)
+  ) {
+    throw new Error(format(message.invFormat, file));
+  }
+  void (
+    doc.compilerOptions.paths ||
+    (doc.compilerOptions.paths = {} as Json.CommentObject)
+  );
+  if (
+    typeof doc.compilerOptions.paths !== "object" ||
+    doc.compilerOptions.paths === null ||
+    Array.isArray(doc.compilerOptions.paths)
+  ) {
+    throw new Error(format(message.invFormat, file));
+  }
+  doc.compilerOptions.paths[name] = paths as Json.CommentArray<string>;
   const text =
     Json.stringify(doc, null, 2).replace(/\[\s+"([^"]+)"\s+\]/g, '["$1"]') +
     "\n";
@@ -303,26 +340,51 @@ export const setPathAliasWithShared = async (cwd: string) => {
   await setPathAlias("..", pathAliasWithShared, cwd);
 };
 
-const configDir = ".bradhezh-create-prj" as const;
+const cfgDir = ".bradhezh-create-prj" as const;
 const config = "config.json" as const;
 
-export const getConfig = async (key: string) => {
+export const getCfg = async (path?: string) => {
   const doc = Json.parse(
-    await readFile(join(homedir(), configDir, config), "utf-8").catch(
-      () => "{}",
-    ),
-  ) as any;
-  return typeof doc !== "object" ? undefined : doc[key];
+    await readFile(join(homedir(), cfgDir, config), "utf-8").catch(() => "{}"),
+  );
+  if (!path) {
+    return doc;
+  }
+  let value = doc;
+  for (const key of path.split(".")) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return;
+    }
+    value = value[key];
+  }
+  return value;
 };
 
-export const setConfig = async (key: string, value: unknown) => {
-  await mkdir(join(homedir(), configDir), { recursive: true });
-  const file = join(homedir(), configDir, config);
-  const doc = Json.parse(await readFile(file, "utf8").catch(() => "{}")) as any;
-  if (typeof doc !== "object") {
-    throw new Error(format(message.invFormat, file));
+export const setCfg = async (value: Json.CommentJSONValue, path?: string) => {
+  await mkdir(join(homedir(), cfgDir), { recursive: true });
+  const file = join(homedir(), cfgDir, config);
+  let doc = Json.parse(await readFile(file, "utf8").catch(() => "{}"));
+  if (!path) {
+    doc = value;
+  } else {
+    if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+      doc = {} as Json.CommentObject;
+    }
+    let obj = doc;
+    const keys = path.split(".");
+    const last = keys.pop()!;
+    for (const key of keys) {
+      if (
+        typeof obj[key] !== "object" ||
+        obj[key] === null ||
+        Array.isArray(obj[key])
+      ) {
+        obj[key] = {} as Json.CommentObject;
+      }
+      obj = obj[key];
+    }
+    obj[last] = value;
   }
-  doc[key] = value;
   const text =
     Json.stringify(doc, null, 2).replace(/\[\s+"([^"]+)"\s+\]/g, '["$1"]') +
     "\n";
@@ -343,7 +405,7 @@ export const installTmplt = async <K extends string, T extends Template<K>>(
   cwd?: string,
   tar?: boolean,
 ) => {
-  const tmplt = template[key ?? defKey] ?? template.default;
+  const tmplt = template[key ?? defKey] ?? template.def;
   if (!tmplt) {
     return;
   }
@@ -369,62 +431,57 @@ export enum AuthKey {
   token = "token",
 }
 type Auth = Partial<Record<AuthKey, string>>;
-type AuthCfgKey = Auth;
+type AuthCfgPath = Auth;
 type Spinner = ReturnType<typeof spinner>;
 
 export const auth = async (
-  key: AuthCfgKey,
+  path: AuthCfgPath,
   ini: Auth,
   hint: string,
   tokenUrl: string,
-  s: Spinner,
+  s?: Spinner,
 ) => {
-  const value = await authGot(key, ini);
+  const value = await authGot(path, ini);
   if (
-    (!key.user || value.user) &&
-    (!key.readToken || value.readToken) &&
-    (!key.token || value.token)
+    (!path.user || value.user) &&
+    (!path.readToken || value.readToken) &&
+    (!path.token || value.token)
   ) {
     return value;
   }
-  s.stop();
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  s?.stop();
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
   await rl.question(hint);
   rl.close();
-  if ((key.readToken && !value.readToken) || (key.token && !value.token)) {
+  if ((path.readToken && !value.readToken) || (path.token && !value.token)) {
     await open(tokenUrl);
   }
   const answer = await authPrompt(
-    !!(key.user && !value.user),
-    !!(key.readToken && !value.readToken),
-    !!(key.token && !value.token),
+    !!(path.user && !value.user),
+    !!(path.readToken && !value.readToken),
+    !!(path.token && !value.token),
   );
-  s.start();
-  await setAuth(value, key, answer);
+  s?.start();
+  await setAuth(value, path, answer);
   return value;
 };
 
-const authGot = async (key: AuthCfgKey, ini: Auth) => {
-  if (!key.user && !key.readToken && !key.token) {
+const authGot = async (path: AuthCfgPath, ini: Auth) => {
+  if (!path.user && !path.readToken && !path.token) {
     return {};
   }
-  return {
-    ...(!key.user
-      ? {}
-      : { user: ini.user ?? ((await getConfig(key.user)) as string) }),
-    ...(!key.readToken
-      ? {}
-      : {
-          readToken:
-            ini.readToken ?? ((await getConfig(key.readToken)) as string),
-        }),
-    ...(!key.token
-      ? {}
-      : { token: ini.token ?? ((await getConfig(key.token)) as string) }),
-  };
+  const user = path.user && (ini.user || (await getCfg(path.user)));
+  const readToken =
+    path.readToken && (ini.readToken || (await getCfg(path.readToken)));
+  const token = path.token && (ini.token || (await getCfg(path.token)));
+  if (
+    (typeof user !== "string" && typeof user !== "undefined") ||
+    (typeof readToken !== "string" && typeof readToken !== "undefined") ||
+    (typeof token !== "string" && typeof token !== "undefined")
+  ) {
+    throw new Error();
+  }
+  return { user, readToken, token };
 };
 
 const authPrompt = (
@@ -434,64 +491,58 @@ const authPrompt = (
 ) => {
   return group(
     {
-      ...(!forUser
-        ? {}
-        : {
-            user: () =>
-              text({
-                message: message.userGot,
-                validate: (value?: string) =>
-                  value ? undefined : message.userRequired,
-              }),
+      ...(forUser && {
+        user: () =>
+          text({
+            message: message.userGot,
+            validate: (value?: string) =>
+              value ? undefined : message.userRequired,
           }),
-      ...(!forReadToken
-        ? {}
-        : {
-            readToken: () =>
-              password({
-                message: message.readTokenGot,
-                mask: "*",
-                validate: (value?: string) =>
-                  value ? undefined : message.readTokenRequired,
-              }),
+      }),
+      ...(forReadToken && {
+        readToken: () =>
+          password({
+            message: message.readTokenGot,
+            mask: "*",
+            validate: (value?: string) =>
+              value ? undefined : message.readTokenRequired,
           }),
-      ...(!forToken
-        ? {}
-        : {
-            token: () =>
-              password({
-                message: message.tokenGot,
-                mask: "*",
-                validate: (value?: string) =>
-                  value ? undefined : message.tokenRequired,
-              }),
+      }),
+      ...(forToken && {
+        token: () =>
+          password({
+            message: message.tokenGot,
+            mask: "*",
+            validate: (value?: string) =>
+              value ? undefined : message.tokenRequired,
           }),
+      }),
     },
     { onCancel },
   );
 };
 
-const setAuth = async (auth: Auth, key: AuthCfgKey, answer: Auth) => {
-  if (key.user && !auth.user) {
+const setAuth = async (auth: Auth, path: AuthCfgPath, answer: Auth) => {
+  if (path.user && !auth.user) {
     if (!answer.user) {
       throw new Error();
     }
     auth.user = answer.user;
-    await setConfig(key.user, auth.user);
+    await setCfg(auth.user, path.user);
   }
-  if (key.readToken && !auth.readToken) {
+  if (path.readToken && !auth.readToken) {
     if (!answer.readToken) {
       throw new Error();
     }
     auth.readToken = answer.readToken;
-    await setConfig(key.readToken, auth.readToken);
+    await setCfg(auth.readToken, path.readToken);
   }
-  if (key.token && !auth.token) {
+  if (path.token && !auth.token) {
     if (!answer.token) {
       throw new Error();
     }
     auth.token = answer.token;
-    await setConfig(key.token, auth.token);
+    await setCfg(auth.token, path.token);
   }
 };
 

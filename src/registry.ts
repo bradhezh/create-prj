@@ -17,13 +17,13 @@ export const meta = {
         framework: "framework",
         typescript: "typescript",
         deployment: "deployment",
+        orm: "orm",
       },
       builder: "builder",
       test: "test",
       lint: "lint",
       git: "git",
       cicd: "cicd",
-      orm: "orm",
     },
     value: { none: "none" },
   },
@@ -378,7 +378,11 @@ const keptOrRequiredInOptions = (
   ofType?: string,
 ) => {
   const optConf = !ofType ? conf : conf[ofType];
-  if (!optConf || typeof optConf !== "object" || Array.isArray(optConf)) {
+  if (
+    typeof optConf !== "object" ||
+    optConf === null ||
+    Array.isArray(optConf)
+  ) {
     return false;
   }
   return opts.find((opt) => {

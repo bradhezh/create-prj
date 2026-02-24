@@ -5,7 +5,7 @@ import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 import wrapAnsi from "wrap-ansi";
 
-import { value, FrmwkValue } from "./const";
+import { value } from "./const";
 import { regType, meta, NPM, Conf, Plugin, PrimeType } from "@/registry";
 import {
   installTmplt,
@@ -16,6 +16,7 @@ import {
   setWkspaceBuiltDeps,
   rmPnpmNodeLinker,
   setPathAliasWithShared,
+  defKey,
   Template,
 } from "@/command";
 import { message as msg } from "@/message";
@@ -25,69 +26,61 @@ async function run(this: Plugin, conf: Conf) {
   s.start();
   log.info(format(message.pluginStart, this.label));
 
-  const { name, typeFrmwk, npm, cwd, shared } = parseConf(
-    conf,
-    this.name as PrimeType,
-  );
+  const conf0 = parseConf(conf, this.name as PrimeType);
 
-  await install(typeFrmwk, npm, cwd, s);
+  await install(conf0, s);
   log.info(message.setPkg);
-  await setPkgName(name, npm, cwd);
-  await setPkgVers(npm, cwd);
-  await typeSetPkgScripts(typeFrmwk, npm, cwd);
+  await setPkg(conf0);
   log.info(message.setWkspace);
-  await setWkspace(typeFrmwk, cwd);
-  if (shared) {
-    log.info(message.setShared);
-    await setShared(typeFrmwk, cwd);
-  }
+  await setWkspace(conf0);
 
   log.info(format(message.pluginFinish, this.label));
   s.stop();
 }
 
 const parseConf = (conf: Conf, type: PrimeType) => {
+  const npm = conf.npm;
+  if (npm !== NPM.npm && npm !== NPM.pnpm) {
+    throw new Error();
+  }
   const name = conf[type]?.name;
   if (!name) {
     throw new Error();
   }
-  const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
-  const npm = conf.npm;
-  const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
-  const shared = (conf.monorepo?.types.length ?? 0) > 1;
-  return { name, typeFrmwk, npm, cwd, shared };
+  const type0 = parseType(conf, type, name);
+  return { npm, name, ...type0 };
 };
 
-const install = async (
-  typeFrmwk: TypeFrmwk,
-  npm: NPM,
-  cwd: string,
-  s: Spinner,
-) => {
+const parseType = (conf: Conf, type: PrimeType, name: string) => {
+  const typeFrmwk = (conf[type]?.framework ?? type) as TypeFrmwk;
+  const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
+  const shared = (conf.monorepo?.types.length ?? 0) > 1;
+  return { type, typeFrmwk, cwd, shared };
+};
+
+type InstallData = { typeFrmwk: TypeFrmwk; npm: NPM; cwd: string };
+
+const install = async ({ typeFrmwk, npm, cwd }: InstallData, s: Spinner) => {
   await installTmplt(base, template, typeFrmwk, cwd, true);
   if (command[typeFrmwk]) {
-    await create(command[typeFrmwk], npm, cwd, s);
+    const cmd = format(command[typeFrmwk], npm, cwd);
+    log.info(wrapAnsi(cmd, message.noteWidth));
+    s.stop();
+    execSync(cmd, { stdio: "inherit" });
+    s.start();
+    await rm(join(cwd, git), { recursive: true, force: true });
   }
   const tmplt = template as Template<TypeFrmwk>;
-  if (!tmplt[typeFrmwk] && !tmplt.default && !command[typeFrmwk]) {
+  if (!tmplt[typeFrmwk] && !tmplt.def && !command[typeFrmwk]) {
     log.warn(format(message.noTmpltCmd, typeFrmwk));
   }
 };
 
-const create = async (command: string, npm: NPM, cwd: string, s: Spinner) => {
-  const cmd = format(command, npm, cwd);
-  log.info(wrapAnsi(cmd, message.noteWidth));
-  s.stop();
-  execSync(cmd, { stdio: "inherit" });
-  s.start();
-  await rm(join(cwd, git), { recursive: true, force: true });
-};
+type PkgData = { typeFrmwk: TypeFrmwk; npm: NPM; cwd: string };
 
-const typeSetPkgScripts = async (
-  typeFrmwk: TypeFrmwk,
-  npm: NPM,
-  cwd: string,
-) => {
+const setPkg = async ({ typeFrmwk, npm, cwd }: PkgData) => {
+  await setPkgName(name, npm, cwd);
+  await setPkgVers(npm, cwd);
   await setPkgScripts(scripts, typeFrmwk, npm, cwd);
   if (
     typeFrmwk === value.framework.next &&
@@ -97,37 +90,41 @@ const typeSetPkgScripts = async (
   }
 };
 
-const setWkspace = async (typeFrmwk: TypeFrmwk, cwd: string) => {
+type WkspaceData = { typeFrmwk: TypeFrmwk; shared: boolean; cwd: string };
+
+const setWkspace = async ({ typeFrmwk, shared, cwd }: WkspaceData) => {
   await setWkspaceBuiltDeps(builtDeps, typeFrmwk);
-  const wkspace = join(cwd, workspace);
-  if (typeFrmwk === value.framework.next && cwd !== ".") {
-    if (
-      await rename(wkspace, `${wkspace}${bak}`)
-        .then(() => true)
-        .catch(() => false)
-    ) {
-      log.warn(
-        wrapAnsi(
-          format(message.nextWkspaceRenamed, cwd, cwd),
-          message.noteWidth,
-        ),
-      );
+  if (cwd !== ".") {
+    if (typeFrmwk === value.framework.next) {
+      const wkspace = join(cwd, workspace);
+      if (
+        await rename(wkspace, `${wkspace}${bak}`)
+          .then(() => true)
+          .catch(() => false)
+      ) {
+        log.warn(
+          wrapAnsi(
+            format(message.nextWkspaceRenamed, cwd, cwd),
+            message.noteWidth,
+          ),
+        );
+      }
+    } else if (typeFrmwk === value.framework.expo) {
+      await rmPnpmNodeLinker();
     }
   }
-  if (typeFrmwk === value.framework.expo && cwd !== ".") {
-    await rmPnpmNodeLinker();
+  if (shared) {
+    log.info(message.setShared);
+    await setPathAliasWithShared(cwd);
+    await installTmplt(base, patchTmplt, typeFrmwk, cwd, true);
   }
 };
 
-const setShared = async (typeFrmwk: TypeFrmwk, cwd: string) => {
-  await setPathAliasWithShared(cwd);
-  await installTmplt(base, patchTmplt, typeFrmwk, cwd, true);
-};
-
-for (const { name, label, frameworks } of [
+for (const { name, label, keeps, frameworks } of [
   {
     name: meta.plugin.type.backend,
     label: "Backend",
+    keeps: [],
     frameworks: [
       {
         name: value.framework.express,
@@ -156,6 +153,7 @@ for (const { name, label, frameworks } of [
   {
     name: meta.plugin.type.frontend,
     label: "Frontend",
+    keeps: [],
     frameworks: [
       {
         name: value.framework.react,
@@ -194,6 +192,7 @@ for (const { name, label, frameworks } of [
   {
     name: meta.plugin.type.mobile,
     label: "Mobile",
+    keeps: [],
     frameworks: [
       {
         name: value.framework.expo,
@@ -208,42 +207,39 @@ for (const { name, label, frameworks } of [
       },
     ],
   },
-]) {
-  regType({
-    name,
-    label,
-    skips: [],
-    keeps: [],
-    requires: [],
-    plugin: { name, label, run },
-    options: [
-      {
-        name: meta.plugin.option.type.name,
-        label: `${label} name`,
-        values: [],
-      },
-      {
-        name: meta.plugin.option.type.framework,
-        label: `${label} framework`,
-        values: frameworks,
-      },
-    ],
-  });
-}
-for (const { name, label } of [
-  { name: meta.plugin.type.node, label: "Node.js app" },
-  { name: meta.plugin.type.lib, label: "Library" },
-  { name: meta.plugin.type.cli, label: "CLI tool" },
-]) {
-  regType({
-    name,
-    label,
-    skips: [],
+  {
+    name: meta.plugin.type.node,
+    label: "Node.js app",
     keeps: [
       { option: meta.plugin.option.builder },
       { option: meta.plugin.option.test },
       { option: meta.plugin.option.lint },
     ],
+  },
+  {
+    name: meta.plugin.type.lib,
+    label: "Library",
+    keeps: [
+      { option: meta.plugin.option.builder },
+      { option: meta.plugin.option.test },
+      { option: meta.plugin.option.lint },
+    ],
+  },
+  {
+    name: meta.plugin.type.cli,
+    label: "CLI tool",
+    keeps: [
+      { option: meta.plugin.option.builder },
+      { option: meta.plugin.option.test },
+      { option: meta.plugin.option.lint },
+    ],
+  },
+]) {
+  regType({
+    name,
+    label,
+    skips: [],
+    keeps,
     requires: [],
     plugin: { name, label, run },
     options: [
@@ -252,31 +248,41 @@ for (const { name, label } of [
         label: `${label} name`,
         values: [],
       },
+      ...(!frameworks
+        ? []
+        : [
+            {
+              name: meta.plugin.option.type.framework,
+              label: `${label} framework`,
+              values: frameworks,
+            },
+          ]),
     ],
   });
 }
 
-type TypeFrmwk = PrimeType | NonNullable<FrmwkValue>;
 type Spinner = ReturnType<typeof spinner>;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/type" as const;
 const name = "type.tar" as const;
 
+type TypeFrmwk = PrimeType | keyof typeof value.framework;
 const template = {
+  nest: { name, path: "/nest/type.tar" },
+  express: { name, path: "/expr/ts/type.tar" },
   node: { name, path: "/node/ts/type.tar" },
   lib: { name, path: "/lib/ts/type.tar" },
   cli: { name, path: "/cli/ts/type.tar" },
-  express: { name, path: "/expr/ts/type.tar" },
-  nest: { name, path: "/nest/type.tar" },
 } as const;
 
 const patchTmplt = {
-  express: { name: "ptch.tar", path: "/shrd/ptch/expr/ts/ptch.tar" },
   nest: { name: "ptch.tar", path: "/shrd/ptch/nest/ptch.tar" },
+  express: { name: "ptch.tar", path: "/shrd/ptch/expr/ts/ptch.tar" },
 } as const;
 
-const command: Partial<Record<TypeFrmwk, string>> = {
+type TypeFrmwkKey = TypeFrmwk | typeof defKey;
+const command: Partial<Record<TypeFrmwkKey, string>> = {
   react: "%s create vite %s --template react-ts",
   next: "%s create next-app %s --ts --no-react-compiler --no-src-dir -app --api --eslint --tailwind --skip-install --disable-git",
   expo: "%s create expo-app %s --no-install",
@@ -296,7 +302,7 @@ const nextScripts = [
   { name: "start:fe", script: "pnpm --filter frontend start" },
 ] as const;
 
-const builtDeps = { nest: ["@nestjs/core"] } as const;
+const builtDeps = { nest: ["@nestjs/core"], react: ["esbuild"] } as const;
 
 const git = ".git" as const;
 const workspace = "pnpm-workspace.yaml" as const;

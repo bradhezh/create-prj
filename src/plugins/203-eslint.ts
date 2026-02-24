@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
-import { value, FrmwkValue, TsValue, TestValue } from "./const";
+import { value } from "./const";
 import {
   regValue,
   typeFrmwksSkip,
@@ -27,34 +27,49 @@ async function run(this: Plugin, conf: Conf) {
   s.start();
   log.info(format(message.pluginStart, this.label));
 
-  const { monorepo, types, test, npm } = await parseConf(conf);
+  const conf0 = parseConf(conf);
+  const types = await parseType(conf, conf0);
 
-  for (const { typeFrmwk, name, cwd, ts } of types) {
-    log.info(format(message.forType, name));
-    await install(ts, test, typeFrmwk, cwd);
+  for (const type of types) {
+    log.info(format(message.forType, type.name));
+    await install({ ...conf0, ...type });
     log.info(message.setPkg);
-    await setPkgScripts({ def: scripts.default }, "def", npm, cwd);
-    await esltSetPkgDeps(ts, npm, cwd);
+    await setPkg({ ...conf0, ...type });
   }
-  if (monorepo) {
-    await setPkgScripts({ mono: scripts.monorepo }, "mono", npm);
-  }
+  await setMono(conf0);
   conf[value.lint.eslint] = {};
 
   log.info(format(message.pluginFinish, this.label));
   s.stop();
 }
 
-const parseConf = async (conf: Conf) => {
-  const types0 = (conf.monorepo?.types ?? [conf.type]) as PrimeType[];
+type Conf0 = { npm: NPM; monorepo: boolean; test: Test };
+
+const parseConf = (conf: Conf) => {
+  const npm = conf.npm;
+  if (npm !== NPM.npm && npm !== NPM.pnpm) {
+    throw new Error();
+  }
   const monorepo = conf.type === meta.plugin.type.monorepo;
+  const test = conf.test as Test;
+  return { npm, monorepo, test };
+};
+
+const parseType = async (conf: Conf, { monorepo }: Conf0) => {
+  const types0 = (conf.monorepo?.types ?? [conf.type]) as PrimeType[];
   const types1 = types0
-    .map((e) => ({
-      typeFrmwk: (conf[e]?.framework ?? e) as TypeFrmwk,
-      name: conf[e]?.name as string,
-      cwd: (!monorepo ? "." : conf[e]?.name) as string,
-      ts: conf[e]?.typescript as TsValue,
-    }))
+    .map((e) => {
+      const name = conf[e]?.name;
+      if (!name) {
+        throw new Error();
+      }
+      return {
+        typeFrmwk: (conf[e]?.framework ?? e) as TypeFrmwk,
+        name,
+        cwd: !monorepo ? "." : name,
+        ts: conf[e]?.typescript as Ts,
+      };
+    })
     .filter(
       (e) =>
         !typeFrmwksSkip(undefined, meta.plugin.option.test, undefined).includes(
@@ -77,25 +92,17 @@ const parseConf = async (conf: Conf) => {
               : meta.plugin.value.none,
           },
         ];
-  if (types.find((e) => !e.name)) {
-    throw new Error();
-  }
-  const test = conf.test as TestValue;
-  const npm = conf.npm;
-  return { monorepo, types, test, npm };
+  return types;
 };
 
-const install = async (
-  ts: TsValue,
-  test: TestValue,
-  typeFrmwk: TypeFrmwk,
-  cwd: string,
-) => {
-  const tmplt = template[ts ?? defKey] ?? template.default!;
+type InstallData = { ts: Ts; test: Test; typeFrmwk: TypeFrmwk; cwd: string };
+
+const install = async ({ ts, test, typeFrmwk, cwd }: InstallData) => {
+  const tmplt = template[ts ?? defKey] ?? template.def;
   if (!tmplt) {
     throw new Error();
   }
-  const tmplt0 = tmplt[test ?? defKey] ?? tmplt.default;
+  const tmplt0 = tmplt[test ?? defKey] ?? tmplt.def;
   if (!tmplt0) {
     throw new Error();
   }
@@ -109,10 +116,21 @@ const install = async (
   );
 };
 
-const esltSetPkgDeps = async (ts: TsValue, npm: NPM, cwd: string) => {
+type PkgData = { ts: Ts; npm: NPM; cwd: string };
+
+const setPkg = async ({ npm, cwd, ts }: PkgData) => {
+  await setPkgScripts({ scripts }, "scripts", npm, cwd);
   await setPkgDeps({ pkgDeps }, "pkgDeps", npm, cwd);
   if (ts !== meta.plugin.value.none) {
     await setPkgDeps({ tsPkgDeps }, "tsPkgDeps", npm, cwd);
+  }
+};
+
+type MonoData = { monorepo: boolean; npm: NPM };
+
+const setMono = async ({ monorepo, npm }: MonoData) => {
+  if (monorepo) {
+    await setPkgScripts({ monoScripts }, "monoScripts", npm);
   }
 };
 
@@ -134,54 +152,50 @@ regValue(
   meta.plugin.option.lint,
 );
 
-type TypeFrmwk =
-  | PrimeType
-  | typeof meta.system.type.shared
-  | NonNullable<FrmwkValue>;
-
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/eslt" as const;
 const name = "eslint.config.mjs" as const;
 
-const template: Partial<
-  Record<
-    NonNullable<TsValue> | typeof defKey,
-    Partial<
-      Record<
-        NonNullable<TestValue> | typeof defKey,
-        Template<
-          | Exclude<
-              TypeFrmwk,
-              typeof meta.plugin.type.lib | typeof meta.plugin.type.cli
-            >
-          | "pkg"
-        >
-      >
+type Ts =
+  | keyof typeof value.typescript
+  | typeof meta.plugin.value.none
+  | undefined;
+type TsKey = NonNullable<Ts> | typeof defKey;
+type Test = keyof typeof value.test | undefined;
+type TestKey = NonNullable<Test> | typeof defKey;
+type TypeFrmwk =
+  | PrimeType
+  | typeof meta.system.type.shared
+  | keyof typeof value.framework;
+type TypeFrmwkKey =
+  | Exclude<
+      TypeFrmwk,
+      typeof meta.plugin.type.lib | typeof meta.plugin.type.cli
     >
-  >
+  | "pkg";
+const template: Partial<
+  Record<TsKey, Partial<Record<TestKey, Template<TypeFrmwkKey>>>>
 > = {
   none: {
-    jest: { default: { name, path: "/ts-n/jest/eslint.config.mjs" } },
-    default: { default: { name, path: "/ts-n/no/eslint.config.mjs" } },
+    jest: { def: { name, path: "/ts-n/jest/eslint.config.mjs" } },
+    def: { def: { name, path: "/ts-n/no/eslint.config.mjs" } },
   },
-  default: {
+  def: {
     jest: {
       pkg: { name, path: "/def/jest/pkg/eslint.config.mjs" },
       shared: { name, path: "/def/jest/pkg/eslint.config.mjs" },
-      default: { name, path: "/def/jest/def/eslint.config.mjs" },
+      def: { name, path: "/def/jest/def/eslint.config.mjs" },
     },
-    default: {
+    def: {
       pkg: { name, path: "/def/no/pkg/eslint.config.mjs" },
       shared: { name, path: "/def/no/pkg/eslint.config.mjs" },
-      default: { name, path: "/def/no/def/eslint.config.mjs" },
+      def: { name, path: "/def/no/def/eslint.config.mjs" },
     },
   },
 } as const;
 
-const scripts = {
-  monorepo: [{ name: "lint", script: "pnpm -r lint" }],
-  default: [{ name: "lint", script: "eslint ." }],
-} as const;
+const scripts = [{ name: "lint", script: "eslint ." }] as const;
+const monoScripts = [{ name: "lint", script: "pnpm -r lint" }] as const;
 
 const pkgDeps = [
   { name: "@eslint/js", version: "^9", dev: true },

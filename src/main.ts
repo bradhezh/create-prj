@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { log } from "@clack/prompts";
+import { isAxiosError } from "axios";
 
 import { config, plugins } from "@/conf";
 import { message } from "@/message";
@@ -14,8 +15,16 @@ export const main = async () => {
     for (const plugin of plugins) {
       await plugin.run(conf);
     }
-  } catch (err: any) {
-    console.log(err.response?.data?.message || err.message || err);
+  } catch (err: unknown) {
+    if (!(err instanceof Error)) {
+      console.log(err);
+      process.exit(1);
+    }
+    if (isAxiosError(err)) {
+      console.log(err.response?.data?.message || err.message);
+    } else {
+      console.log(err.message);
+    }
     console.log(err.stack);
     process.exit(1);
   }

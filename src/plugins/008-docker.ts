@@ -1,20 +1,20 @@
 import { group, text, log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
-import { option, value, DkrValue } from "./const";
-import { regValue, meta, NPM, Conf, Plugin } from "@/registry";
+import { valid, option, value, DkrValue } from "./const";
+import { regValue, meta, NPM, Conf, Plugin, PrimeType } from "@/registry";
 import {
   installTmplt,
   auth,
-  getConfig,
-  setConfig,
+  getCfg,
+  setCfg,
   onCancel,
   defKey,
   Template,
 } from "@/command";
 import { message as msg } from "@/message";
 
-const run = (type: DkrDeployType) => {
+const run = (type: PrimeType) => {
   return async function (this: Plugin, conf: Conf) {
     const s = spinner();
     s.start();
@@ -26,18 +26,11 @@ const run = (type: DkrDeployType) => {
     );
 
     const reg = this.name.split("_").at(-1)!;
-    const { image, monorepo, npm, lint, test, forToken, registry } =
-      await parseConf(conf, reg, s);
+    const conf0 = await parseConf(conf, type, reg, s);
 
-    await install(monorepo, npm, type, lint, test);
-    const { user, readToken, token } = await authDkr(reg, forToken, s);
-    (conf[type]![reg] as DkrValue) = {
-      registry,
-      user,
-      readToken,
-      token,
-      image,
-    };
+    await install(conf0);
+    const auth0 = await authDkr(conf0, s);
+    setValue(conf, { ...conf0, ...auth0 });
 
     log.info(
       format(
@@ -49,44 +42,74 @@ const run = (type: DkrDeployType) => {
   };
 };
 
-const parseConf = async (conf: Conf, reg: string, s: Spinner) => {
-  if (
-    (conf.backend?.[option.deploySrc] === value.deploySrc.ghcr ||
-      conf.backend?.[option.deploySrc] === value.deploySrc.dkrhub) &&
-    (conf.frontend?.[option.deploySrc] === value.deploySrc.ghcr ||
-      conf.frontend?.[option.deploySrc] === value.deploySrc.dkrhub)
-  ) {
-    throw new Error();
-  }
-  const image =
-    reg === value.deploySrc.ghcr ? await iniImg(ghImg, ghReg, s) : undefined;
-  const monorepo = conf.type === meta.plugin.type.monorepo;
+const parseConf = async (
+  conf: Conf,
+  type: PrimeType,
+  reg: string,
+  s: Spinner,
+) => {
   const npm = conf.npm;
   if (npm !== NPM.npm && npm !== NPM.pnpm) {
     throw new Error();
   }
+  const monorepo = conf.type === meta.plugin.type.monorepo;
   const lint = !!conf.lint;
   const test = !!conf.test;
-  // for cicd
-  const forToken =
-    !!conf.cicd &&
-    (conf.cicd !== value.cicd.gha || reg !== value.deploySrc.ghcr);
-  if (!forToken) {
-    return { image, monorepo, npm, lint, test, forToken };
+  const deploy = await parseDeploy(conf, type, reg, s);
+  const cicd = parseCicd(conf, reg);
+  return { type, reg, npm, monorepo, lint, test, ...deploy, ...cicd };
+};
+
+const parseDeploy = async (
+  conf: Conf,
+  type: PrimeType,
+  reg: string,
+  s: Spinner,
+) => {
+  if (
+    (type !== meta.plugin.type.backend && type !== meta.plugin.type.frontend) ||
+    ((conf.backend?.[option.deploySrc] === value.deploySrc.dkrhub ||
+      conf.backend?.[option.deploySrc] === value.deploySrc.ghcr) &&
+      (conf.frontend?.[option.deploySrc] === value.deploySrc.dkrhub ||
+        conf.frontend?.[option.deploySrc] === value.deploySrc.ghcr))
+  ) {
+    throw new Error();
   }
-  let registry;
-  if (reg === value.deploySrc.ghcr) {
-    registry = ghReg;
-  } else if (reg === value.deploySrc.dkrhub) {
-    registry = dhReg;
+  let image;
+  if (reg === value.deploySrc.dkrhub) {
+    void 0;
+  } else if (reg === value.deploySrc.ghcr) {
+    image = await iniImg(ghcrImgPath, ghcrReg, s);
   } else {
     throw new Error();
   }
-  return { image, monorepo, npm, lint, test, forToken, registry };
+  return { image };
 };
 
-const iniImg = async (key: string, registry: string, s: Spinner) => {
-  const image = (await getConfig(key)) as string;
+const parseCicd = (conf: Conf, reg: string) => {
+  let forToken = false;
+  let registry;
+  if (
+    valid(conf.cicd) &&
+    (conf.cicd !== value.cicd.gha || reg !== value.deploySrc.ghcr)
+  ) {
+    forToken = true;
+    if (reg === value.deploySrc.dkrhub) {
+      registry = dhReg;
+    } else if (reg === value.deploySrc.ghcr) {
+      registry = ghcrReg;
+    } else {
+      throw new Error();
+    }
+  }
+  return { forToken, registry };
+};
+
+const iniImg = async (path: string, registry: string, s: Spinner) => {
+  const image = await getCfg(path);
+  if (typeof image !== "string" && typeof image !== "undefined") {
+    throw new Error();
+  }
   if (image) {
     return image;
   }
@@ -104,128 +127,130 @@ const iniImg = async (key: string, registry: string, s: Spinner) => {
     { onCancel },
   );
   s.start();
-  await setConfig(key, answer.image);
+  await setCfg(answer.image, path);
   return answer.image;
 };
 
-const install = async (
-  monorepo: boolean,
-  npm: NPM,
-  type: DkrDeployType,
-  lint: boolean,
-  test: boolean,
-) => {
+type InstallData = {
+  monorepo: boolean;
+  npm: NPM;
+  type: PrimeType;
+  lint: boolean;
+  test: boolean;
+};
+
+const install = async ({ monorepo, npm, type, lint, test }: InstallData) => {
   await installTmplt(base, { ignoreTmplt }, "ignoreTmplt");
-  const tmplt = template[monorepo ? "monorepo" : npm] ?? template.default;
+  const tmplt = template[monorepo ? "mono" : npm] ?? template.def;
   if (!tmplt) {
     throw new Error();
   }
-  const tmplt0 = tmplt[type] ?? tmplt.default;
+  const tmplt0 = tmplt[type] ?? tmplt.def;
   if (!tmplt0) {
     throw new Error();
   }
-  const tmplt1 = tmplt0[lint ? "lint" : defKey] ?? tmplt0.default;
+  const tmplt1 = tmplt0[lint ? "lint" : defKey] ?? tmplt0.def;
   if (!tmplt1) {
     throw new Error();
   }
-  await installTmplt(base, tmplt1, test ? "test" : defKey);
+  await installTmplt(base, tmplt1, test ? "test" : defKey, ".", true);
 };
 
-const authDkr = async (reg: string, forToken: boolean, s: Spinner) => {
-  let userKey, readTokenKey, tokenKey, msg, url;
-  if (reg === value.deploySrc.ghcr) {
-    userKey = ghUser;
-    readTokenKey = ghReadToken;
-    tokenKey = ghToken;
-    msg = forToken ? message.ghTokens : message.ghReadToken;
-    url = ghTokenUrl;
-  } else if (reg === value.deploySrc.dkrhub) {
-    userKey = dhUser;
-    readTokenKey = dhReadToken;
-    tokenKey = dhToken;
+type AuthData = { reg: string; forToken: boolean };
+
+const authDkr = async ({ reg, forToken }: AuthData, s: Spinner) => {
+  let userPath, readTokenPath, tokenPath, msg, url;
+  if (reg === value.deploySrc.dkrhub) {
+    userPath = dhUserPath;
+    readTokenPath = dhReadTokenPath;
+    tokenPath = dhTokenPath;
     msg = forToken ? message.dhTokens : message.dhReadToken;
     url = dhTokenUrl;
+  } else if (reg === value.deploySrc.ghcr) {
+    userPath = ghcrUserPath;
+    readTokenPath = ghcrReadTokenPath;
+    tokenPath = ghcrTokenPath;
+    msg = forToken ? message.ghcrTokens : message.ghcrReadToken;
+    url = ghcrTokenUrl;
   } else {
     throw new Error();
   }
   const { user, readToken, token } = await auth(
     {
-      user: userKey,
-      readToken: readTokenKey,
-      ...(!forToken ? {} : { token: tokenKey }),
+      user: userPath,
+      readToken: readTokenPath,
+      ...(forToken && { token: tokenPath }),
     },
     {},
     msg,
     url,
     s,
   );
-  if (!user || !readToken) {
+  if (!user || !readToken || (forToken && !token)) {
     throw new Error();
   }
   return { user, readToken, token };
 };
 
-for (const { name, label } of [
+type Value = { type: PrimeType; reg: string } & NonNullable<DkrValue>;
+
+const setValue = (
+  conf: Conf,
+  { type, reg, user, readToken, image, token, registry }: Value,
+) => {
+  (conf[type]![reg] as DkrValue) = { user, readToken, image, token, registry };
+};
+
+for (const { type, skips } of [
   {
-    name: value.deploySrc.ghcr,
-    label:
-      'GitHub Container Registry\n|    Note: You must already have an arbitrary image in your ghcr.io registry\n|    as an initial placeholder for deployment.\n|    e.g. (Please use a token with "write:packages" to login)\n|    $ docker login ghcr.io -u <USERNAME>\n|    $ docker pull alpine:latest\n|    $ docker tag alpine:latest ghcr.io/<USERNAME>/alpine:latest\n|    $ docker push ghcr.io/<USERNAME>/alpine:latest',
+    type: meta.plugin.type.backend,
+    skips: [
+      {
+        type: meta.plugin.type.frontend,
+        option: option.deploySrc,
+        value: value.deploySrc.dkrhub,
+      },
+      {
+        type: meta.plugin.type.frontend,
+        option: option.deploySrc,
+        value: value.deploySrc.ghcr,
+      },
+    ],
   },
-  { name: value.deploySrc.dkrhub, label: "Docker Hub" },
+  { type: meta.plugin.type.frontend, skips: [] },
 ]) {
-  regValue(
+  for (const { name, label } of [
+    { name: value.deploySrc.dkrhub, label: "Docker Hub" },
     {
-      name,
-      label,
-      skips: [
-        {
-          type: meta.plugin.type.frontend,
-          option: option.deploySrc,
-          value: value.deploySrc.ghcr,
-        },
-        {
-          type: meta.plugin.type.frontend,
-          option: option.deploySrc,
-          value: value.deploySrc.dkrhub,
-        },
-      ],
-      keeps: [],
-      requires: [],
-      plugin: {
-        name: `${meta.plugin.type.backend}_${option.deploySrc}_${name}`,
-        label,
-        run: run(meta.plugin.type.backend),
-      },
+      name: value.deploySrc.ghcr,
+      label:
+        'GitHub Container Registry\n|    Note: You must already have an arbitrary image in your ghcr.io registry\n|    as an initial placeholder for deployment.\n|    e.g. (Please use a token with "write:packages" to login)\n|    $ docker login ghcr.io -u <USERNAME>\n|    $ docker pull alpine:latest\n|    $ docker tag alpine:latest ghcr.io/<USERNAME>/alpine:latest\n|    $ docker push ghcr.io/<USERNAME>/alpine:latest',
     },
-    option.deploySrc,
-    meta.plugin.type.backend,
-  );
-  regValue(
-    {
-      name,
-      label,
-      skips: [],
-      keeps: [],
-      requires: [],
-      plugin: {
-        name: `${meta.plugin.type.frontend}_${option.deploySrc}_${name}`,
+  ]) {
+    regValue(
+      {
+        name,
         label,
-        run: run(meta.plugin.type.frontend),
+        skips,
+        keeps: [],
+        requires: [],
+        plugin: {
+          name: `${type}_${option.deploySrc}_${name}`,
+          label,
+          run: run(type),
+        },
       },
-    },
-    option.deploySrc,
-    meta.plugin.type.frontend,
-  );
+      option.deploySrc,
+      type,
+    );
+  }
 }
 
-type DkrDeployType =
-  | typeof meta.plugin.type.backend
-  | typeof meta.plugin.type.frontend;
 type Spinner = ReturnType<typeof spinner>;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/dkr" as const;
-const name = "Dockerfile" as const;
+const name = "dkr.tar" as const;
 
 const ignoreTmplt = {
   name: ".dockerignore",
@@ -234,108 +259,108 @@ const ignoreTmplt = {
 
 const template: Partial<
   Record<
-    "monorepo" | NPM | typeof defKey,
+    "mono" | NPM | typeof defKey,
     Partial<
       Record<
-        DkrDeployType | typeof defKey,
+        PrimeType | typeof defKey,
         Partial<Record<"lint" | typeof defKey, Template<"test">>>
       >
     >
   >
 > = {
-  monorepo: {
+  mono: {
     backend: {
       lint: {
-        test: { name, path: "/file/mono/be/lint/test/Dockerfile" },
-        default: { name, path: "/file/mono/be/lint/no/Dockerfile" },
+        test: { name, path: "/file/mono/be/lint/test/dkr.tar" },
+        def: { name, path: "/file/mono/be/lint/no/dkr.tar" },
       },
-      default: {
-        test: { name, path: "/file/mono/be/no/test/Dockerfile" },
-        default: { name, path: "/file/mono/be/no/no/Dockerfile" },
+      def: {
+        test: { name, path: "/file/mono/be/no/test/dkr.tar" },
+        def: { name, path: "/file/mono/be/no/no/dkr.tar" },
       },
     },
     frontend: {
       lint: {
-        test: { name, path: "/file/mono/fe/lint/test/Dockerfile" },
-        default: { name, path: "/file/mono/fe/lint/no/Dockerfile" },
+        test: { name, path: "/file/mono/fe/lint/test/dkr.tar" },
+        def: { name, path: "/file/mono/fe/lint/no/dkr.tar" },
       },
-      default: {
-        test: { name, path: "/file/mono/fe/no/test/Dockerfile" },
-        default: { name, path: "/file/mono/fe/no/no/Dockerfile" },
+      def: {
+        test: { name, path: "/file/mono/fe/no/test/dkr.tar" },
+        def: { name, path: "/file/mono/fe/no/no/dkr.tar" },
       },
     },
   },
   npm: {
     backend: {
       lint: {
-        test: { name, path: "/file/npm/be/lint/test/Dockerfile" },
-        default: { name, path: "/file/npm/be/lint/no/Dockerfile" },
+        test: { name, path: "/file/npm/be/lint/test/dkr.tar" },
+        def: { name, path: "/file/npm/be/lint/no/dkr.tar" },
       },
-      default: {
-        test: { name, path: "/file/npm/be/no/test/Dockerfile" },
-        default: { name, path: "/file/npm/be/no/no/Dockerfile" },
+      def: {
+        test: { name, path: "/file/npm/be/no/test/dkr.tar" },
+        def: { name, path: "/file/npm/be/no/no/dkr.tar" },
       },
     },
     frontend: {
       lint: {
-        test: { name, path: "/file/npm/fe/lint/test/Dockerfile" },
-        default: { name, path: "/file/npm/fe/lint/no/Dockerfile" },
+        test: { name, path: "/file/npm/fe/lint/test/dkr.tar" },
+        def: { name, path: "/file/npm/fe/lint/no/dkr.tar" },
       },
-      default: {
-        test: { name, path: "/file/npm/fe/no/test/Dockerfile" },
-        default: { name, path: "/file/npm/fe/no/no/Dockerfile" },
+      def: {
+        test: { name, path: "/file/npm/fe/no/test/dkr.tar" },
+        def: { name, path: "/file/npm/fe/no/no/dkr.tar" },
       },
     },
   },
   pnpm: {
     backend: {
       lint: {
-        test: { name, path: "/file/pnpm/be/lint/test/Dockerfile" },
-        default: { name, path: "/file/pnpm/be/lint/no/Dockerfile" },
+        test: { name, path: "/file/pnpm/be/lint/test/dkr.tar" },
+        def: { name, path: "/file/pnpm/be/lint/no/dkr.tar" },
       },
-      default: {
-        test: { name, path: "/file/pnpm/be/no/test/Dockerfile" },
-        default: { name, path: "/file/pnpm/be/no/no/Dockerfile" },
+      def: {
+        test: { name, path: "/file/pnpm/be/no/test/dkr.tar" },
+        def: { name, path: "/file/pnpm/be/no/no/dkr.tar" },
       },
     },
     frontend: {
       lint: {
-        test: { name, path: "/file/pnpm/fe/lint/test/Dockerfile" },
-        default: { name, path: "/file/pnpm/fe/lint/no/Dockerfile" },
+        test: { name, path: "/file/pnpm/fe/lint/test/dkr.tar" },
+        def: { name, path: "/file/pnpm/fe/lint/no/dkr.tar" },
       },
-      default: {
-        test: { name, path: "/file/pnpm/fe/no/test/Dockerfile" },
-        default: { name, path: "/file/pnpm/fe/no/no/Dockerfile" },
+      def: {
+        test: { name, path: "/file/pnpm/fe/no/test/dkr.tar" },
+        def: { name, path: "/file/pnpm/fe/no/no/dkr.tar" },
       },
     },
   },
 } as const;
 
-const ghReg = "ghcr.io" as const;
-const ghImg = "ghImg" as const;
-const ghUser = "ghUser" as const;
-const ghToken = "ghToken" as const;
-const ghReadToken = "ghReadToken" as const;
-const ghTokenUrl =
-  "https://github.com/settings/tokens/new?description=bradhezh-create-prj-read-pkg&scopes=read:packages" as const;
 const dhReg = "docker.io" as const;
-const dhUser = "dhUser" as const;
-const dhToken = "dhToken" as const;
-const dhReadToken = "dhReadToken" as const;
+const dhUserPath = "docker-hub.user" as const;
+const dhReadTokenPath = "docker-hub.read-token" as const;
+const dhTokenPath = "docker-hub.token" as const;
 const dhTokenUrl =
   "https://app.docker.com/settings/personal-access-tokens" as const;
+const ghcrReg = "ghcr.io" as const;
+const ghcrUserPath = "github-cr.user" as const;
+const ghcrReadTokenPath = "github-cr.read-token" as const;
+const ghcrImgPath = "github-cr.image" as const;
+const ghcrTokenPath = "github-cr.token" as const;
+const ghcrTokenUrl =
+  "https://github.com/settings/tokens/new?description=bradhezh-create-prj-read-pkg&scopes=read:packages" as const;
 
 const message = {
   ...msg,
   imgGot: "Arbitrary image in the registry: ",
   defImg: "%s/<USERNAME>/alpine:latest",
   imgRequired: "Image required.",
-  ghReadToken:
-    'Token needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "read:packages" scope for deployment...\n',
-  ghTokens:
-    'Tokens needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "read:packages" scope for deployment and a token with the "write:packages" scope for CI/CD...\n',
   dhReadToken:
     "Token needed for automated integration.\nPress [ENTER] to open your browser and create a read-only token for deployment...\n",
   dhTokens:
     "Tokens needed for automated integration.\nPress [ENTER] to open your browser and create a read-only token for deployment and a read-write token for CI/CD...\n",
+  ghcrReadToken:
+    'Token needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "read:packages" scope for deployment...\n',
+  ghcrTokens:
+    'Tokens needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "read:packages" scope for deployment and a token with the "write:packages" scope for CI/CD...\n',
 } as const;

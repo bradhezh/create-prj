@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
-import { value, TsValue } from "./const";
+import { value } from "./const";
 import { regOption, meta, NPM, Conf, Plugin } from "@/registry";
 import { setTsOptions, installTmplt, setPkgName, setPkgVers } from "@/command";
 import { message as msg } from "@/message";
@@ -13,27 +13,34 @@ async function run(this: Plugin, conf: Conf) {
   s.start();
   log.info(format(message.pluginStart, this.label));
 
-  const { ts, name, npm, cwd } = parseConf(conf);
+  const conf0 = parseConf(conf);
 
-  await reinstall(ts, name, npm, cwd);
+  await reinstall(conf0);
 
   log.info(format(message.pluginFinish, this.label));
   s.stop();
 }
 
 const parseConf = (conf: Conf) => {
-  const ts = conf.node!.typescript as Ts;
+  const npm = conf.npm;
+  if (npm !== NPM.npm && npm !== NPM.pnpm) {
+    throw new Error();
+  }
   const name = conf.node!.name;
   if (!name) {
     throw new Error();
   }
-  const npm = conf.npm;
   const cwd = conf.type !== meta.plugin.type.monorepo ? "." : name;
-  return { ts, name, npm, cwd };
+  const ts = conf.node!.typescript;
+  return { npm, name, cwd, ts };
 };
 
-const reinstall = async (ts: Ts, name: string, npm: NPM, cwd: string) => {
-  if (ts === value.typescript.metadata) {
+type InstallData = { ts?: string; name: string; npm: NPM; cwd: string };
+
+const reinstall = async ({ ts, name, npm, cwd }: InstallData) => {
+  if (ts === value.typescript.nodec) {
+    void 0;
+  } else if (ts === value.typescript.metadata) {
     await setTsOptions(
       { experimentalDecorators: true, emitDecoratorMetadata: true },
       cwd,
@@ -46,7 +53,7 @@ const reinstall = async (ts: Ts, name: string, npm: NPM, cwd: string) => {
     await installTmplt(base, { template }, "template", cwd, true);
     await setPkgName(name, npm, cwd);
     await setPkgVers(npm, cwd);
-  } else if (ts !== value.typescript.nodec) {
+  } else {
     throw new Error();
   }
 };
@@ -89,8 +96,6 @@ regOption(
   meta.system.option.category.type,
   meta.plugin.type.node,
 );
-
-type Ts = NonNullable<TsValue>;
 
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/type/node/js/type.tar" as const;

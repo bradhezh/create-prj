@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
 
-import { value, FrmwkValue, TsValue } from "./const";
+import { value } from "./const";
 import {
   regValue,
   typeFrmwksSkip,
@@ -28,38 +28,52 @@ async function run(this: Plugin, conf: Conf) {
   s.start();
   log.info(format(message.pluginStart, this.label));
 
-  const { monorepo, shared, types, npm } = await parseConf(conf);
+  const conf0 = parseConf(conf);
+  const types = await parseType(conf, conf0);
 
-  for (const { typeFrmwk, name, cwd, ts, backend } of types) {
-    log.info(format(message.forType, name));
-    await install(ts, typeFrmwk, shared, cwd);
+  for (const type of types) {
+    log.info(format(message.forType, type.name));
+    await install({ ...conf0, ...type });
     log.info(message.setPkg);
-    await setPkgScripts({ def: scripts.default }, "def", npm, cwd);
-    await jestSetPkgDeps(ts, backend, typeFrmwk, npm, cwd);
+    await setPkg({ ...conf0, ...type });
   }
-  if (monorepo) {
-    await setPkgScripts({ mono: scripts.monorepo }, "mono", npm);
-  }
+  await setMono(conf0);
   log.info(message.setWkspace);
-  await setWkspaceBuiltDeps({ builtDeps }, "builtDeps");
+  await setWkspace();
   conf[value.test.jest] = {};
 
   log.info(format(message.pluginFinish, this.label));
   s.stop();
 }
 
-const parseConf = async (conf: Conf) => {
-  const types0 = (conf.monorepo?.types ?? [conf.type]) as PrimeType[];
+type Conf0 = { npm: NPM; monorepo: boolean; shared: boolean };
+
+const parseConf = (conf: Conf) => {
+  const npm = conf.npm;
+  if (npm !== NPM.npm && npm !== NPM.pnpm) {
+    throw new Error();
+  }
   const monorepo = conf.type === meta.plugin.type.monorepo;
-  const shared = types0.length > 1;
+  const shared = (conf.monorepo?.types.length ?? 0) > 1;
+  return { npm, monorepo, shared };
+};
+
+const parseType = async (conf: Conf, { monorepo, shared }: Conf0) => {
+  const types0 = (conf.monorepo?.types ?? [conf.type]) as PrimeType[];
   const types1 = types0
-    .map((e) => ({
-      typeFrmwk: (conf[e]?.framework ?? e) as TypeFrmwk,
-      name: conf[e]?.name as string,
-      cwd: (!monorepo ? "." : conf[e]?.name) as string,
-      ts: conf[e]?.typescript as TsValue,
-      backend: e === meta.plugin.type.backend,
-    }))
+    .map((e) => {
+      const name = conf[e]?.name;
+      if (!name) {
+        throw new Error();
+      }
+      return {
+        typeFrmwk: (conf[e]?.framework ?? e) as TypeFrmwk,
+        name,
+        cwd: !monorepo ? "." : name,
+        ts: conf[e]?.typescript as Ts,
+        backend: e === meta.plugin.type.backend,
+      };
+    })
     .filter(
       (e) =>
         !typeFrmwksSkip(undefined, meta.plugin.option.test, undefined).includes(
@@ -82,25 +96,23 @@ const parseConf = async (conf: Conf) => {
           backend: false,
         },
       ];
-  if (types.find((e) => !e.name)) {
-    throw new Error();
-  }
-  const npm = conf.npm;
-  return { monorepo, shared, types, npm };
+  return types;
 };
 
-const install = async (
-  ts: TsValue,
-  typeFrmwk: TypeFrmwk,
-  shared: boolean,
-  cwd: string,
-) => {
+type InstallData = {
+  typeFrmwk: TypeFrmwk;
+  ts: Ts;
+  shared: boolean;
+  cwd: string;
+};
+
+const install = async ({ typeFrmwk, ts, shared, cwd }: InstallData) => {
   if (typeFrmwk === value.framework.nest) {
     await installTmplt(base, nestTmplt, shared ? "shared" : defKey, cwd);
   } else if (typeFrmwk === meta.system.type.shared) {
     await installTmplt(base, sharedTmplt, ts, cwd);
   } else {
-    const tmplt = template[ts ?? defKey] ?? template.default;
+    const tmplt = template[ts ?? defKey] ?? template.def;
     if (!tmplt) {
       throw new Error();
     }
@@ -109,26 +121,29 @@ const install = async (
         typeFrmwk === meta.plugin.type.lib || typeFrmwk === meta.plugin.type.cli
           ? "pkg"
           : typeFrmwk
-      ] ?? tmplt.default;
+      ] ?? tmplt.def;
     if (!tmplt0) {
       throw new Error();
     }
     await installTmplt(base, tmplt0, shared ? "shared" : defKey, cwd);
   }
-  const tmplt = srcTmplt[typeFrmwk] ?? srcTmplt.default;
+  const tmplt = srcTmplt[typeFrmwk] ?? srcTmplt.def;
   if (!tmplt) {
     throw new Error();
   }
   await installTmplt(base, tmplt, ts, cwd);
 };
 
-const jestSetPkgDeps = async (
-  ts: TsValue,
-  backend: boolean,
-  typeFrmwk: TypeFrmwk,
-  npm: NPM,
-  cwd: string,
-) => {
+type PkgData = {
+  ts: Ts;
+  backend: boolean;
+  typeFrmwk: TypeFrmwk;
+  npm: NPM;
+  cwd: string;
+};
+
+const setPkg = async ({ ts, backend, typeFrmwk, npm, cwd }: PkgData) => {
+  await setPkgScripts({ scripts }, "scripts", npm, cwd);
   await setPkgDeps({ pkgDeps }, "pkgDeps", npm, cwd);
   if (ts !== meta.plugin.value.none) {
     await setPkgDeps({ tsPkgDeps }, "tsPkgDeps", npm, cwd);
@@ -142,6 +157,18 @@ const jestSetPkgDeps = async (
   if (typeFrmwk === value.framework.nest) {
     await setPkgDeps({ nestPkgDeps }, "nestPkgDeps", npm, cwd);
   }
+};
+
+type MonoData = { monorepo: boolean; npm: NPM };
+
+const setMono = async ({ monorepo, npm }: MonoData) => {
+  if (monorepo) {
+    await setPkgScripts({ monoScripts }, "monoScripts", npm);
+  }
+};
+
+const setWkspace = async () => {
+  await setWkspaceBuiltDeps({ builtDeps }, "builtDeps");
 };
 
 const label = "Jest" as const;
@@ -162,82 +189,78 @@ regValue(
   meta.plugin.option.test,
 );
 
-type TypeFrmwk =
-  | PrimeType
-  | typeof meta.system.type.shared
-  | NonNullable<FrmwkValue>;
-
 const base =
   "https://raw.githubusercontent.com/bradhezh/prj-template/master/jest" as const;
 const name = "jest.config.js" as const;
 
 const nestTmplt = {
   shared: { name, path: "/cfg/meta/def/shrd/jest.config.js" },
-  default: { name, path: "/cfg/meta/def/no/jest.config.js" },
+  def: { name, path: "/cfg/meta/def/no/jest.config.js" },
 } as const;
 
+type Ts =
+  | keyof typeof value.typescript
+  | typeof meta.plugin.value.none
+  | undefined;
 const sharedTmplt = {
   none: { name, path: "/cfg/no/jest.config.js" },
-  default: { name, path: "/cfg/shrd/jest.config.js" },
+  def: { name, path: "/cfg/shrd/jest.config.js" },
 } as const;
 
-const template: Partial<
-  Record<
-    NonNullable<TsValue> | typeof defKey,
-    Partial<
-      Record<
-        | Exclude<
-            TypeFrmwk,
-            typeof meta.plugin.type.lib | typeof meta.plugin.type.cli
-          >
-        | "pkg"
-        | typeof defKey,
-        Template<"shared" | typeof defKey>
-      >
+type TsKey = NonNullable<Ts> | typeof defKey;
+type TypeFrmwk =
+  | PrimeType
+  | typeof meta.system.type.shared
+  | keyof typeof value.framework;
+type TypeFrmwkKey =
+  | Exclude<
+      TypeFrmwk,
+      typeof meta.plugin.type.lib | typeof meta.plugin.type.cli
     >
-  >
+  | "pkg"
+  | typeof defKey;
+const template: Partial<
+  Record<TsKey, Partial<Record<TypeFrmwkKey, Template<"shared">>>>
 > = {
-  none: { default: { default: { name, path: "/cfg/no/jest.config.js" } } },
+  none: { def: { def: { name, path: "/cfg/no/jest.config.js" } } },
   metadata: {
     pkg: {
       shared: { name, path: "/cfg/meta/pkg/shrd/jest.config.js" },
-      default: { name, path: "/cfg/meta/pkg/no/jest.config.js" },
+      def: { name, path: "/cfg/meta/pkg/no/jest.config.js" },
     },
-    default: {
+    def: {
       shared: { name, path: "/cfg/meta/def/shrd/jest.config.js" },
-      default: { name, path: "/cfg/meta/def/no/jest.config.js" },
+      def: { name, path: "/cfg/meta/def/no/jest.config.js" },
     },
   },
-  default: {
+  def: {
     pkg: {
       shared: { name, path: "/cfg/ndec/pkg/shrd/jest.config.js" },
-      default: { name, path: "/cfg/ndec/pkg/no/jest.config.js" },
+      def: { name, path: "/cfg/ndec/pkg/no/jest.config.js" },
     },
-    default: {
+    def: {
       shared: { name, path: "/cfg/ndec/def/shrd/jest.config.js" },
-      default: { name, path: "/cfg/ndec/def/no/jest.config.js" },
+      def: { name, path: "/cfg/ndec/def/no/jest.config.js" },
     },
   },
 } as const;
 
 const srcTmplt: Partial<
-  Record<TypeFrmwk | typeof defKey, Template<NonNullable<TsValue>>>
+  Record<TypeFrmwk | typeof defKey, Template<NonNullable<TsKey>>>
 > = {
-  nest: { default: { name: "jest.tar", path: "/src/nest/jest.tar" } },
+  nest: { def: { name: "jest.tar", path: "/src/nest/jest.tar" } },
   express: {
     none: { name: "jest.tar", path: "/src/expr/js/jest.tar" },
-    default: { name: "jest.tar", path: "/src/expr/ts/jest.tar" },
+    def: { name: "jest.tar", path: "/src/expr/ts/jest.tar" },
   },
-  default: {
+  def: {
     none: { name: "jest.tar", path: "/src/def/js/jest.tar" },
-    default: { name: "jest.tar", path: "/src/def/ts/jest.tar" },
+    def: { name: "jest.tar", path: "/src/def/ts/jest.tar" },
   },
 } as const;
 
-const scripts = {
-  monorepo: [{ name: "test", script: "pnpm -r test" }],
-  default: [{ name: "test", script: "jest --passWithNoTests" }],
-} as const;
+const scripts = [{ name: "test", script: "jest --passWithNoTests" }] as const;
+const monoScripts = [{ name: "test", script: "pnpm -r test" }] as const;
 
 const pkgDeps = [
   { name: "@swc/core", version: "^1", dev: true },
