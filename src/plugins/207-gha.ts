@@ -9,7 +9,8 @@ import {
   option,
   value,
   RenderValue,
-  CLIDeployValue,
+  VercelValue,
+  ExpoValue,
   DkrValue,
   GitSvcValue,
 } from "./const";
@@ -196,12 +197,12 @@ const parseDeployFe = (conf: Conf) => {
       throw new Error();
     }
   } else if (feDeploy === value.deployment.vercel) {
-    feDeployData = conf.frontend![value.deployment.vercel] as CLIDeployValue;
+    feDeployData = conf.frontend![value.deployment.vercel] as VercelValue;
     if (!feDeployData) {
       log.warn(message.noVercel);
       return;
     }
-    if (!feDeployData.token) {
+    if (!feDeployData.org || !feDeployData.project || !feDeployData.token) {
       throw new Error();
     }
     if (conf.type === meta.plugin.type.monorepo) {
@@ -220,7 +221,7 @@ const parseDeployM = (conf: Conf) => {
   const mDeploy = conf.mobile?.deployment as Deploy;
   let mDeployData, mDir;
   if (mDeploy === value.deployment.expo) {
-    mDeployData = conf.mobile![value.deployment.expo] as CLIDeployValue;
+    mDeployData = conf.mobile![value.deployment.expo] as ExpoValue;
     if (!mDeployData) {
       log.warn(message.noExpo);
       return;
@@ -468,7 +469,9 @@ const setGhaFe = async ({
       throw new Error();
     }
   } else if (feDeploy === value.deployment.vercel) {
-    const { token } = feDeployData as CLIDeploy;
+    const { org, project, token } = feDeployData as Vercel;
+    await exec("gh", ["secret", "set", vercelOrgKey, "--body", org!]);
+    await exec("gh", ["secret", "set", vercelPrjKey, "--body", project!]);
     await exec("gh", ["secret", "set", vercelTokenKey, "--body", token!]);
   } else if (valid(feDeploy)) {
     throw new Error();
@@ -480,7 +483,7 @@ const setGhaFe = async ({
 
 const setGhaM = async ({ mDeploy, mDeployData, mDir }: GhaData) => {
   if (mDeploy === value.deployment.expo) {
-    const { token } = mDeployData as CLIDeploy;
+    const { token } = mDeployData as Expo;
     await exec("gh", ["secret", "set", expoTokenKey, "--body", token!]);
   } else if (valid(mDeploy)) {
     throw new Error();
@@ -543,8 +546,9 @@ regValue(
 const exec = promisify(execFile);
 
 type Render = NonNullable<RenderValue>;
-type CLIDeploy = NonNullable<CLIDeployValue>;
-type DeployData = RenderValue | CLIDeployValue;
+type Vercel = NonNullable<VercelValue>;
+type Expo = NonNullable<ExpoValue>;
+type DeployData = RenderValue | VercelValue | ExpoValue;
 type Docker = NonNullable<DkrValue>;
 type SrcData = DkrValue;
 type GitSvc = NonNullable<GitSvcValue>;
@@ -674,6 +678,8 @@ const renderOwnerKey = "RENDER_OWNER_ID" as const;
 const renderSvcKey = "RENDER_SERVICE_ID" as const;
 const renderTokenKey = "RENDER_API_KEY" as const;
 const renderCredKey = "RENDER_CRED_ID" as const;
+const vercelOrgKey = "VERCEL_ORG_ID" as const;
+const vercelPrjKey = "VERCEL_PROJECT_ID" as const;
 const vercelTokenKey = "VERCEL_TOKEN" as const;
 const expoTokenKey = "EXPO_TOKEN" as const;
 const dkrRegKey = "DOCKER_REGISTRY" as const;

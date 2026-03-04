@@ -37,7 +37,6 @@ async function run(this: Plugin, conf: Conf) {
     log.info(message.setPkg);
     await setPkg({ ...conf0, ...type });
   }
-  await setMono(conf0);
   log.info(message.setWkspace);
   await setWkspace();
   conf[value.test.jest] = {};
@@ -159,14 +158,6 @@ const setPkg = async ({ ts, backend, typeFrmwk, npm, cwd }: PkgData) => {
   }
 };
 
-type MonoData = { monorepo: boolean; npm: NPM };
-
-const setMono = async ({ monorepo, npm }: MonoData) => {
-  if (monorepo) {
-    await setPkgScripts({ monoScripts }, "monoScripts", npm);
-  }
-};
-
 const setWkspace = async () => {
   await setWkspaceBuiltDeps({ builtDeps }, "builtDeps");
 };
@@ -258,7 +249,6 @@ const srcTmplt: Partial<Record<TypeFrmwk | typeof defKey, Template<TsKey>>> = {
 } as const;
 
 const scripts = [{ name: "test", script: "jest --passWithNoTests" }] as const;
-const monoScripts = [{ name: "test", script: "pnpm -r test" }] as const;
 
 const pkgDeps = [
   { name: "@swc/core", version: "^1", dev: true },

@@ -1,7 +1,6 @@
 import { group, text, select, multiselect, log } from "@clack/prompts";
 import { basename } from "node:path";
 import { format } from "node:util";
-import wrapAnsi from "wrap-ansi";
 
 import {
   adjustOptions,
@@ -258,27 +257,24 @@ const optionalPrompt = (defOpts: Option[]) => {
 
 const hintOptional = (opts: Option[]) => {
   log.info(
-    wrapAnsi(
-      format(
-        message.optional.hint,
-        opts
-          .map((e) => {
-            const def =
-              e.values.length &&
-              e.values[0].name !== meta.plugin.value.none &&
-              e.values[0].label;
-            const desc = !e.required
-              ? !def
-                ? ""
-                : `(${def})`
-              : !def
-                ? "(Required)"
-                : `(${def}, Required)`;
-            return `${e.label}${desc}`;
-          })
-          .join(", "),
-      ),
-      message.noteWidth,
+    format(
+      message.optional.hint,
+      opts
+        .map((e) => {
+          const def =
+            e.values.length &&
+            e.values[0].name !== meta.plugin.value.none &&
+            e.values[0].label;
+          const desc = !e.required
+            ? !def
+              ? ""
+              : `(${def})`
+            : !def
+              ? "(Required)"
+              : `(${def}, Required)`;
+          return `${e.label}${desc}`;
+        })
+        .join(", "),
     ),
   );
 };

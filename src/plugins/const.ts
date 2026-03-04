@@ -31,7 +31,10 @@ export const value = {
 export type RenderValue =
   | { owner: string; service: string; token: string; cred?: string }
   | undefined;
-export type CLIDeployValue = { token?: string } | undefined;
+export type VercelValue =
+  | { org?: string; project?: string; token?: string }
+  | undefined;
+export type ExpoValue = { token?: string } | undefined;
 export type DkrValue =
   | {
       user: string;

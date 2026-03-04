@@ -416,6 +416,6 @@ const message = {
   noGit:
     "Cannot work as expected because the plugin for the Git option has not run successfully.",
   token:
-    "API key needed to create a Render service, as well as for CI/CD.\nPress [ENTER] to open your browser and create an API key...\n",
+    "API key needed to create a Render service, as well as for CI/CD. Press [ENTER] to open your browser and create an API key...",
   createRender: "Creating the service on Render.com",
 } as const;

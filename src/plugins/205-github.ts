@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 
 import { valid, option, value, GitSvcValue } from "./const";
-import { regValue, meta, Conf, Plugin, PluginType } from "@/registry";
+import { regValue, meta, NPM, Conf, Plugin, PluginType } from "@/registry";
 import { installTmplt, auth } from "@/command";
 import { message as msg } from "@/message";
 
@@ -22,6 +22,7 @@ async function run(this: Plugin, conf: Conf, gha?: true) {
 
   const conf0 = parseConf(conf, gha);
 
+  await install(conf0);
   const auth0 = await authGh(conf0, s);
   await checkScopes(s);
   const gh = await createGh({ ...conf0, ...auth0 });
@@ -33,6 +34,11 @@ async function run(this: Plugin, conf: Conf, gha?: true) {
 }
 
 const parseConf = (conf: Conf, gha?: true) => {
+  const npm = conf.npm;
+  if (npm !== NPM.npm && npm !== NPM.pnpm) {
+    throw new Error();
+  }
+  const monorepo = conf.type === meta.plugin.type.monorepo;
   const name = conf[conf.type as PluginType]?.name;
   if (!name) {
     throw new Error();
@@ -43,6 +49,8 @@ const parseConf = (conf: Conf, gha?: true) => {
   const deploy = parseDeploy(conf, vis, gha);
   const cicd = parseCicd(conf, gha);
   return {
+    npm,
+    monorepo,
     name,
     vis,
     ...deploy,
@@ -109,7 +117,7 @@ const parseDeployFe = (conf: Conf) => {
       throw new Error();
     }
   } else if (conf.frontend?.deployment === value.deployment.vercel) {
-    log.warn("todo: parse github conf for vercel...");
+    void 0;
   } else if (valid(conf.frontend?.deployment)) {
     throw new Error();
   }
@@ -120,7 +128,7 @@ const parseDeployM = (conf: Conf) => {
   const forRepo = false;
   const forReadToken = false;
   if (conf.mobile?.deployment === value.deployment.expo) {
-    log.warn("todo: parse github conf for expo...");
+    void 0;
   } else if (valid(conf.mobile?.deployment)) {
     throw new Error();
   }
@@ -173,27 +181,27 @@ const init = async () => {
     return false;
   }
   if (
-    !(await access(template.name)
+    !(await exec(command.gh)
       .then(() => true)
       .catch(() => false))
   ) {
+    log.warn(message.noGh);
+    return false;
+  }
+  return true;
+};
+
+type InstallData = { monorepo: boolean };
+
+const install = async ({ monorepo }: InstallData) => {
+  if (
+    !(await access(template.name)
+      .then(() => true)
+      .catch(() => false)) ||
+    monorepo
+  ) {
     await installTmplt(base, { template }, "template");
   }
-  log.info(command.init);
-  await exec(command.init);
-  log.info(command.add);
-  await exec(command.add);
-  log.info(command.ciInit);
-  await exec(command.ciInit);
-  if (
-    await exec(command.gh)
-      .then(() => true)
-      .catch(() => false)
-  ) {
-    return true;
-  }
-  log.warn(message.noGh);
-  return false;
 };
 
 type AuthData = { forReadToken: boolean; forToken: boolean };
@@ -239,9 +247,24 @@ const checkScopes = async (s: Spinner) => {
   }
 };
 
-type GhData = { user: string; name: string; vis: string; forRepo?: boolean };
+type GhData = {
+  user: string;
+  name: string;
+  vis: string;
+  npm: NPM;
+  forRepo?: boolean;
+};
 
-const createGh = async ({ user, name, vis, forRepo }: GhData) => {
+const createGh = async ({ user, name, vis, npm, forRepo }: GhData) => {
+  const install = format(command.install, npm);
+  log.info(install);
+  await exec(install);
+  log.info(command.init);
+  await exec(command.init);
+  log.info(command.add);
+  await exec(command.add);
+  log.info(command.ciInit);
+  await exec(command.ciInit);
   const create = format(command.createGh, name, vis);
   log.info(create);
   await exec(create);
@@ -326,12 +349,13 @@ const base =
 const template = { name: ".gitignore" } as const;
 
 const command = {
+  install: "%s i",
   git: "git --version",
+  gh: "gh --version",
   init: "git init",
   add: "git add .",
   ciInit: 'git commit -m "init"',
   ciCodeowner: 'git commit -m "CODEOWNERS added"',
-  gh: "gh --version",
   auth: "gh auth status",
   user: "gh api user --jq .login",
   login: "gh auth login --scopes repo",
@@ -360,10 +384,10 @@ const message = {
   noGit: 'No "git" installed to create the repository.',
   noGh: 'No "gh" installed to create the repository on GitHub.',
   readToken:
-    'Token needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "repo" scope for deployment...\n',
+    'Token needed for automated integration. Press [ENTER] to open your browser and create a token with the "repo" scope for deployment...',
   token:
-    'Token needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "admin:repo_hook" scope for CI/CD...\n',
+    'Token needed for automated integration. Press [ENTER] to open your browser and create a token with the "admin:repo_hook" scope for CI/CD...',
   tokens:
-    'Tokens needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "repo" scope for deployment and a token with the "admin:repo_hook" scope for CI/CD...\n',
+    'Tokens needed for automated integration. Press [ENTER] to open your browser and create a token with the "repo" scope for deployment and a token with the "admin:repo_hook" scope for CI/CD...',
   scopeRequired: '"repo" required in scopes.',
 } as const;

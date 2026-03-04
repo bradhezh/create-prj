@@ -45,5 +45,4 @@ export const message = {
   setWkspace: "Setting workspace",
   setShared: "Setting shared",
   pluginFinish: "%s completed!",
-  noteWidth: 70,
 } as const;

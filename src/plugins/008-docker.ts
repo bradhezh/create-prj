@@ -356,11 +356,11 @@ const message = {
   defImg: "%s/<USERNAME>/alpine:latest",
   imgRequired: "Image required.",
   dhReadToken:
-    "Token needed for automated integration.\nPress [ENTER] to open your browser and create a read-only token for deployment...\n",
+    "Token needed for automated integration. Press [ENTER] to open your browser and create a read-only token for deployment...",
   dhTokens:
-    "Tokens needed for automated integration.\nPress [ENTER] to open your browser and create a read-only token for deployment and a read-write token for CI/CD...\n",
+    "Tokens needed for automated integration. Press [ENTER] to open your browser and create a read-only token for deployment and a read-write token for CI/CD...",
   ghcrReadToken:
-    'Token needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "read:packages" scope for deployment...\n',
+    'Token needed for automated integration. Press [ENTER] to open your browser and create a token with the "read:packages" scope for deployment...',
   ghcrTokens:
-    'Tokens needed for automated integration.\nPress [ENTER] to open your browser and create a token with the "read:packages" scope for deployment and a token with the "write:packages" scope for CI/CD...\n',
+    'Tokens needed for automated integration. Press [ENTER] to open your browser and create a token with the "read:packages" scope for deployment and a token with the "write:packages" scope for CI/CD...',
 } as const;

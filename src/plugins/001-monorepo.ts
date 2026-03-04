@@ -7,6 +7,7 @@ import {
   setPkgName,
   setPkgVers,
   setPkgScript,
+  setPkgScripts,
   createWkspace,
   defKey,
 } from "@/command";
@@ -114,6 +115,7 @@ const setPkg = async (data: PkgData) => {
   await setBuildScripts(data);
   await setDevScripts(data);
   await setStartScripts(data);
+  await setPkgScripts({ scripts }, "scripts", npm);
 };
 
 const setBuildScripts = async ({
@@ -227,6 +229,11 @@ const sharedTmplt = {
   js: { name, path: "/shrd/js/type.tar" },
   def: { name, path: "/shrd/ts/type.tar" },
 } as const;
+
+const scripts = [
+  { name: "test", script: "pnpm -r test" },
+  { name: "lint", script: "pnpm -r lint" },
+];
 
 const script = {
   build: {

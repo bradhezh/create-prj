@@ -1,18 +1,13 @@
-import { execSync, exec as execAsync } from "node:child_process";
-import { promisify, format } from "node:util";
+import { execSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import Json from "comment-json";
 import { log, spinner } from "@clack/prompts";
+import { format } from "node:util";
 
-import { valid, option, value, CLIDeployValue } from "./const";
-import {
-  regValue,
-  meta,
-  PosMode,
-  NPM,
-  Conf,
-  Plugin,
-  PrimeType,
-} from "@/registry";
-import { auth } from "@/command";
+import { valid, option, value, VercelValue } from "./const";
+import { regValue, meta, NPM, Conf, Plugin, PrimeType } from "@/registry";
+import { installTmplt, auth } from "@/command";
 import { message as msg } from "@/message";
 
 const run = (type: PrimeType) => {
@@ -22,13 +17,11 @@ const run = (type: PrimeType) => {
     log.info(format(message.pluginStart, `${this.label} for the ${type}`));
 
     const conf0 = parseConf(conf, type);
-    if (!conf0) {
-      return;
-    }
 
+    await install();
     const auth0 = await authVercel(conf0, s);
-    await createVercel({ ...conf0, ...auth0 }, s);
-    setValue(conf, { ...conf0, ...auth0 });
+    const vercel = await createVercel({ ...conf0, ...auth0 }, s);
+    setValue(conf, { ...conf0, ...auth0, ...vercel });
 
     log.info(format(message.pluginFinish, `${this.label} for the ${type}`));
     s.stop();
@@ -40,63 +33,71 @@ const parseConf = (conf: Conf, type: PrimeType) => {
   if (npm !== NPM.npm && npm !== NPM.pnpm) {
     throw new Error();
   }
-  const deploy = parseDeploy(conf, type);
-  if (!deploy) {
-    return;
+  if (type !== meta.plugin.type.frontend) {
+    throw new Error();
   }
   const cicd = parseCicd(conf);
-  return { type, npm, ...deploy, ...cicd };
-};
-
-const parseDeploy = (conf: Conf, type: PrimeType) => {
-  if (type !== meta.plugin.type.frontend || !valid(conf.git)) {
-    throw new Error();
-  }
-  if (!conf[conf.git!]) {
-    log.warn(message.noGit);
-    return;
-  }
-  const cwd = conf.type !== meta.plugin.type.monorepo ? "." : conf[type]?.name;
-  if (!cwd) {
-    throw new Error();
-  }
-  return { cwd };
+  return { type, npm, ...cicd };
 };
 
 const parseCicd = (conf: Conf) => {
-  const forToken = valid(conf.cicd);
-  return { forToken };
+  const forPrjToken = valid(conf.cicd);
+  return { forPrjToken };
 };
 
-type AuthData = { forToken: boolean };
+const install = async () => {
+  await installTmplt(base, { template }, "template");
+};
 
-const authVercel = async ({ forToken }: AuthData, s: Spinner) => {
+type AuthData = { forPrjToken: boolean };
+
+const authVercel = async ({ forPrjToken }: AuthData, s: Spinner) => {
   const { token } = await auth(
-    { ...(forToken && { token: tokenPath }) },
+    { ...(forPrjToken && { token: tokenPath }) },
     {},
     message.token,
     tokenUrl,
     s,
   );
-  if (forToken && !token) {
+  if (forPrjToken && !token) {
     throw new Error();
   }
   return { token };
 };
 
-type VercelData = { npm: NPM; cwd: string };
+type VercelData = { npm: NPM; forPrjToken: boolean };
 
-const createVercel = async ({ npm, cwd }: VercelData, s: Spinner) => {
-  log.info(
-    "todo: install vercel CLI, using it to create the project on Vercel and link to it.",
-  );
-  await Promise.resolve({ execSync, exec, command, npm, cwd, s });
+const createVercel = async ({ npm, forPrjToken }: VercelData, s: Spinner) => {
+  const link = npm === NPM.npm ? command.npmLink : command.pnpmLink;
+  log.info(link);
+  s.stop();
+  execSync(link, { stdio: "inherit" });
+  s.start();
+  if (forPrjToken) {
+    const doc = Json.parse(
+      await readFile(join(cfgDir, config), "utf-8").catch(() => "{}"),
+    );
+    if (
+      typeof doc !== "object" ||
+      doc === null ||
+      Array.isArray(doc) ||
+      typeof doc.orgId !== "string" ||
+      typeof doc.projectId !== "string"
+    ) {
+      throw new Error();
+    }
+    return { org: doc.orgId, project: doc.projectId };
+  }
 };
 
-type Value = { type: PrimeType } & NonNullable<CLIDeployValue>;
+type Value = { type: PrimeType } & NonNullable<VercelValue>;
 
-const setValue = (conf: Conf, { type, token }: Value) => {
-  (conf[type]![value.deployment.vercel] as CLIDeployValue) = { token };
+const setValue = (conf: Conf, { type, org, project, token }: Value) => {
+  (conf[type]![value.deployment.vercel] as VercelValue) = {
+    org,
+    project,
+    token,
+  };
 };
 
 const label = "Vercel" as const;
@@ -117,14 +118,10 @@ regValue(
       },
     ],
     keeps: [],
-    requires: [{ option: meta.plugin.option.git }],
+    requires: [],
     plugin: {
       name: `${meta.plugin.type.frontend}_${meta.plugin.option.type.deployment}_${value.deployment.vercel}`,
       label,
-      pos: {
-        mode: PosMode.after,
-        refs: [meta.plugin.option.git],
-      },
       run: run(meta.plugin.type.frontend),
     },
   },
@@ -132,23 +129,24 @@ regValue(
   meta.plugin.type.frontend,
 );
 
-const exec = promisify(execAsync);
-
 type Spinner = ReturnType<typeof spinner>;
 
+const base =
+  "https://raw.githubusercontent.com/bradhezh/prj-template/master/vcl/vercel.json" as const;
+const template = { name: "vercel.json" } as const;
+
 const command = {
-  install: "%s add -D vercel",
-  login: "%s vercel login",
-  link: "%s vercel link",
+  npmLink: "npx vercel link",
+  pnpmLink: "pnpm dlx vercel link",
 } as const;
 
 const tokenPath = "vercel.token" as const;
-const tokenUrl = "" as const;
+const tokenUrl = "https://vercel.com/account/settings/tokens" as const;
+const cfgDir = ".vercel" as const;
+const config = "project.json" as const;
 
 const message = {
   ...msg,
-  noGit:
-    "Cannot work as expected because the plugin for the Git option has not run successfully.",
   token:
-    "Token needed for automated integration.\nPress [ENTER] to open your browser and create a read-write token for CI/CD...\n",
+    "Token needed for automated integration. Press [ENTER] to open your browser and create a read-write token for CI/CD...",
 } as const;

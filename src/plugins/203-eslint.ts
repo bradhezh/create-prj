@@ -36,7 +36,6 @@ async function run(this: Plugin, conf: Conf) {
     log.info(message.setPkg);
     await setPkg({ ...conf0, ...type });
   }
-  await setMono(conf0);
   conf[value.lint.eslint] = {};
 
   log.info(format(message.pluginFinish, this.label));
@@ -126,14 +125,6 @@ const setPkg = async ({ npm, cwd, ts }: PkgData) => {
   }
 };
 
-type MonoData = { monorepo: boolean; npm: NPM };
-
-const setMono = async ({ monorepo, npm }: MonoData) => {
-  if (monorepo) {
-    await setPkgScripts({ monoScripts }, "monoScripts", npm);
-  }
-};
-
 const label = "ESLint" as const;
 
 regValue(
@@ -196,7 +187,6 @@ const template: Partial<
 } as const;
 
 const scripts = [{ name: "lint", script: "eslint ." }] as const;
-const monoScripts = [{ name: "lint", script: "pnpm -r lint" }] as const;
 
 const pkgDeps = [
   { name: "@eslint/js", version: "^9", dev: true },

@@ -1,9 +1,18 @@
-import { execSync, exec as execAsync } from "node:child_process";
-import { promisify, format } from "node:util";
+import { execSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { log, spinner } from "@clack/prompts";
+import { format } from "node:util";
 
-import { valid, value, CLIDeployValue } from "./const";
-import { regValue, meta, NPM, Conf, Plugin, PrimeType } from "@/registry";
+import { valid, value, ExpoValue } from "./const";
+import {
+  regValue,
+  meta,
+  PosMode,
+  NPM,
+  Conf,
+  Plugin,
+  PrimeType,
+} from "@/registry";
 import { auth } from "@/command";
 import { message as msg } from "@/message";
 
@@ -14,6 +23,9 @@ const run = (type: PrimeType) => {
     log.info(format(message.pluginStart, `${this.label} for the ${type}`));
 
     const conf0 = parseConf(conf, type);
+    if (!conf0) {
+      return;
+    }
 
     const auth0 = await authExpo(conf0, s);
     await createExpo({ ...conf0, ...auth0 }, s);
@@ -30,13 +42,20 @@ const parseConf = (conf: Conf, type: PrimeType) => {
     throw new Error();
   }
   const deploy = parseDeploy(conf, type);
+  if (!deploy) {
+    return;
+  }
   const cicd = parseCicd(conf);
   return { type, npm, ...deploy, ...cicd };
 };
 
 const parseDeploy = (conf: Conf, type: PrimeType) => {
-  if (type !== meta.plugin.type.mobile) {
+  if (type !== meta.plugin.type.mobile || !valid(conf.git)) {
     throw new Error();
+  }
+  if (!conf[conf.git!]) {
+    log.warn(message.noGit);
+    return;
   }
   const cwd = conf.type !== meta.plugin.type.monorepo ? "." : conf[type]?.name;
   if (!cwd) {
@@ -69,16 +88,26 @@ const authExpo = async ({ forToken }: AuthData, s: Spinner) => {
 type ExpoData = { npm: NPM; cwd: string };
 
 const createExpo = async ({ npm, cwd }: ExpoData, s: Spinner) => {
-  log.info(
-    "todo: install eas CLI, using it to create the project on Expo and link to it.",
-  );
-  await Promise.resolve({ execSync, exec, command, npm, cwd, s });
+  const link = npm === NPM.npm ? command.npmLink : command.pnpmLink;
+  log.info(link);
+  s.stop();
+  execSync(link, { stdio: "inherit", cwd });
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question(message.build)).trim().toLowerCase();
+  rl.close();
+  if (!answer || answer === "y" || answer === "yes") {
+    const preview =
+      npm === NPM.npm ? command.npmAdrPreview : command.pnpmAdrPreview;
+    log.info(preview);
+    execSync(preview, { stdio: "inherit", cwd });
+  }
+  s.start();
 };
 
-type Value = { type: PrimeType } & NonNullable<CLIDeployValue>;
+type Value = { type: PrimeType } & NonNullable<ExpoValue>;
 
 const setValue = (conf: Conf, { type, token }: Value) => {
-  (conf[type]![value.deployment.expo] as CLIDeployValue) = { token };
+  (conf[type]![value.deployment.expo] as ExpoValue) = { token };
 };
 
 const label = "Expo" as const;
@@ -98,10 +127,11 @@ regValue(
       },
     ],
     keeps: [],
-    requires: [],
+    requires: [{ option: meta.plugin.option.git }],
     plugin: {
       name: `${meta.plugin.type.mobile}_${meta.plugin.option.type.deployment}_${value.deployment.expo}`,
       label,
+      pos: { mode: PosMode.after, refs: [meta.plugin.option.git] },
       run: run(meta.plugin.type.mobile),
     },
   },
@@ -109,21 +139,24 @@ regValue(
   meta.plugin.type.mobile,
 );
 
-const exec = promisify(execAsync);
-
 type Spinner = ReturnType<typeof spinner>;
 
 const command = {
-  install: "%s add -D eas-cli",
-  login: "%s eas login",
-  link: "%s eas build:configure",
+  npmLink: "npx eas-cli build:configure",
+  pnpmLink: "pnpm dlx eas-cli build:configure",
+  npmAdrPreview: "npx eas-cli build --platform android --profile preview",
+  pnpmAdrPreview: "pnpm dlx eas-cli build --platform android --profile preview",
 } as const;
 
 const tokenPath = "expo.token" as const;
-const tokenUrl = "" as const;
+const tokenUrl = "https://expo.dev/settings/access-tokens" as const;
 
 const message = {
   ...msg,
+  noGit:
+    "Cannot work as expected because the plugin for the Git option has not run successfully.",
   token:
-    "Token needed for automated integration.\nPress [ENTER] to open your browser and create a read-write token for CI/CD...\n",
+    "Token needed for automated integration. Press [ENTER] to open your browser and create a read-write token for CI/CD...",
+  build:
+    "Now you can use eas-cli to build the project on Expo. Note that you should first use eas-cli locally in interactive mode before using it non-interactively in CI/CD. The build process will take a few minutes. You can run it now or at anytime. Do you want to run it now? (Y/n)",
 } as const;

@@ -3,7 +3,6 @@ import { rm, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { log, spinner } from "@clack/prompts";
 import { format } from "node:util";
-import wrapAnsi from "wrap-ansi";
 
 import { value } from "./const";
 import { regType, meta, NPM, Conf, Plugin, PrimeType } from "@/registry";
@@ -65,7 +64,7 @@ const install = async ({ typeFrmwk, npm, cwd }: InstallData, s: Spinner) => {
   await installTmplt(base, template, typeFrmwk, cwd, true);
   if (command[typeFrmwk]) {
     const cmd = format(command[typeFrmwk], npm, cwd);
-    log.info(wrapAnsi(cmd, message.noteWidth));
+    log.info(cmd);
     s.stop();
     execSync(cmd, { stdio: "inherit" });
     s.start();
@@ -109,12 +108,7 @@ const setWkspace = async ({ typeFrmwk, shared, cwd }: WkspaceData) => {
           .then(() => true)
           .catch(() => false)
       ) {
-        log.warn(
-          wrapAnsi(
-            format(message.nextWkspaceRenamed, cwd, cwd),
-            message.noteWidth,
-          ),
-        );
+        log.warn(format(message.nextWkspaceRenamed, cwd, cwd));
       }
     } else if (typeFrmwk === value.framework.expo) {
       await rmPnpmNodeLinker();
